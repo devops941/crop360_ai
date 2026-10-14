@@ -1,0 +1,138 @@
+export interface CropBenchmark {
+  cropName: string;
+  botanicalName: string;
+  category: 'cereal' | 'pulse' | 'oilseed' | 'commercial' | 'horticulture' | 'vegetable';
+  seasons: ('kharif' | 'rabi' | 'zaid' | 'year_round')[];
+  suitableSoilTypes: string[];
+  optimalPhRange: [number, number];
+  waterRequirement: 'low' | 'moderate' | 'high';
+  nitrogenRequirement: 'low' | 'moderate' | 'high';
+  phosphorusRequirement: 'low' | 'moderate' | 'high';
+  potassiumRequirement: 'low' | 'moderate' | 'high';
+  durationDays: string;
+  expectedYieldQuintalsPerAcre: string;
+  averageMandiPricePerQuintalInr: number;
+}
+
+export const INDIAN_CROP_BENCHMARKS: CropBenchmark[] = [
+  {
+    cropName: 'Paddy (Rice / Samba / Kuruvai)',
+    botanicalName: 'Oryza sativa',
+    category: 'cereal',
+    seasons: ['kharif', 'rabi'],
+    suitableSoilTypes: ['clay', 'clay_loam', 'alluvial', 'black'],
+    optimalPhRange: [5.5, 7.5],
+    waterRequirement: 'high',
+    nitrogenRequirement: 'high',
+    phosphorusRequirement: 'moderate',
+    potassiumRequirement: 'moderate',
+    durationDays: '120 - 135 days',
+    expectedYieldQuintalsPerAcre: '24 - 28 quintals',
+    averageMandiPricePerQuintalInr: 2350,
+  },
+  {
+    cropName: 'Cotton (Bt Cotton / Kapas)',
+    botanicalName: 'Gossypium hirsutum',
+    category: 'commercial',
+    seasons: ['kharif'],
+    suitableSoilTypes: ['black', 'deep_black', 'clay_loam'],
+    optimalPhRange: [6.0, 8.2],
+    waterRequirement: 'moderate',
+    nitrogenRequirement: 'high',
+    phosphorusRequirement: 'moderate',
+    potassiumRequirement: 'high',
+    durationDays: '150 - 165 days',
+    expectedYieldQuintalsPerAcre: '10 - 14 quintals',
+    averageMandiPricePerQuintalInr: 7200,
+  },
+  {
+    cropName: 'Maize (Corn / Makka Cholam)',
+    botanicalName: 'Zea mays',
+    category: 'cereal',
+    seasons: ['kharif', 'rabi', 'zaid'],
+    suitableSoilTypes: ['loamy', 'sandy_loam', 'red_loam', 'alluvial'],
+    optimalPhRange: [6.0, 7.5],
+    waterRequirement: 'moderate',
+    nitrogenRequirement: 'high',
+    phosphorusRequirement: 'high',
+    potassiumRequirement: 'moderate',
+    durationDays: '95 - 110 days',
+    expectedYieldQuintalsPerAcre: '28 - 35 quintals',
+    averageMandiPricePerQuintalInr: 2150,
+  },
+  {
+    cropName: 'Sugarcane',
+    botanicalName: 'Saccharum officinarum',
+    category: 'commercial',
+    seasons: ['year_round'],
+    suitableSoilTypes: ['alluvial', 'black', 'loamy', 'clay_loam'],
+    optimalPhRange: [6.5, 8.0],
+    waterRequirement: 'high',
+    nitrogenRequirement: 'high',
+    phosphorusRequirement: 'moderate',
+    potassiumRequirement: 'high',
+    durationDays: '300 - 360 days',
+    expectedYieldQuintalsPerAcre: '400 - 550 quintals',
+    averageMandiPricePerQuintalInr: 320,
+  },
+  {
+    cropName: 'Groundnut (Peanut / Verkadalai)',
+    botanicalName: 'Arachis hypogaea',
+    category: 'oilseed',
+    seasons: ['kharif', 'rabi'],
+    suitableSoilTypes: ['sandy_loam', 'red_sandy', 'loamy'],
+    optimalPhRange: [6.0, 7.5],
+    waterRequirement: 'low',
+    nitrogenRequirement: 'low',
+    phosphorusRequirement: 'high',
+    potassiumRequirement: 'moderate',
+    durationDays: '105 - 115 days',
+    expectedYieldQuintalsPerAcre: '10 - 14 quintals',
+    averageMandiPricePerQuintalInr: 6800,
+  },
+  {
+    cropName: 'Blackgram (Urad Dal / Ulundu)',
+    botanicalName: 'Vigna mungo',
+    category: 'pulse',
+    seasons: ['rabi', 'zaid', 'kharif'],
+    suitableSoilTypes: ['loamy', 'clay_loam', 'black'],
+    optimalPhRange: [6.5, 7.8],
+    waterRequirement: 'low',
+    nitrogenRequirement: 'low',
+    phosphorusRequirement: 'moderate',
+    potassiumRequirement: 'low',
+    durationDays: '65 - 75 days',
+    expectedYieldQuintalsPerAcre: '4 - 6 quintals',
+    averageMandiPricePerQuintalInr: 7500,
+  },
+  {
+    cropName: 'Turmeric (Haldi / Manjal)',
+    botanicalName: 'Curcuma longa',
+    category: 'horticulture',
+    seasons: ['kharif'],
+    suitableSoilTypes: ['red_loam', 'sandy_loam', 'alluvial'],
+    optimalPhRange: [6.0, 7.5],
+    waterRequirement: 'moderate',
+    nitrogenRequirement: 'high',
+    phosphorusRequirement: 'moderate',
+    potassiumRequirement: 'high',
+    durationDays: '240 - 270 days',
+    expectedYieldQuintalsPerAcre: '20 - 26 quintals',
+    averageMandiPricePerQuintalInr: 12500,
+  },
+  {
+    cropName: 'Tomato (Hybrid / Thakkali)',
+    botanicalName: 'Solanum lycopersicum',
+    category: 'vegetable',
+    seasons: ['rabi', 'kharif'],
+    suitableSoilTypes: ['sandy_loam', 'loamy', 'red_loam'],
+    optimalPhRange: [6.0, 7.0],
+    waterRequirement: 'moderate',
+    nitrogenRequirement: 'high',
+    phosphorusRequirement: 'high',
+    potassiumRequirement: 'high',
+    durationDays: '110 - 130 days',
+    expectedYieldQuintalsPerAcre: '120 - 160 quintals',
+    averageMandiPricePerQuintalInr: 1800,
+  },
+];
