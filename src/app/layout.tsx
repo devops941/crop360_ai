@@ -26,7 +26,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="flex flex-col min-h-screen bg-[#FAFAF6] dark:bg-[#111813] text-[#252B26] dark:text-[#E8F0E9] antialiased selection:bg-[#E7EFE6] selection:text-[#193D2A]">
+      <body
+        suppressHydrationWarning
+        className="flex flex-col min-h-screen bg-[#FAFAF6] dark:bg-[#111813] text-[#252B26] dark:text-[#E8F0E9] antialiased selection:bg-[#E7EFE6] selection:text-[#193D2A]"
+      >
         <ThemeProvider>
           <ToastProvider>{children}</ToastProvider>
         </ThemeProvider>

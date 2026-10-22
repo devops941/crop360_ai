@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AlertNotificationRepository } from '@/repositories/alert-notification.repository';
 import { AuditLogger } from '@/lib/audit-logger';
-import { verifyAuthToken } from '@/lib/auth';
+import { AUTH_COOKIE_NAME, verifyAuthToken } from '@/lib/auth';
+import { getTenantScope } from '@/lib/tenant';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const scope = await getTenantScope(request);
     const { searchParams } = new URL(request.url);
     const farmerId = searchParams.get('farmerId') || undefined;
     const category = searchParams.get('category') || undefined;
@@ -12,7 +16,21 @@ export async function GET(request: NextRequest) {
     const unreadOnly = searchParams.get('unreadOnly') === 'true';
 
     const filter: Record<string, unknown> = {};
-    if (farmerId) filter.farmerId = farmerId;
+    if (!scope.isAdmin) {
+      const allowedFarmerIds = [...scope.farmerIdStrings, scope.userId];
+      if (farmerId) {
+        if (allowedFarmerIds.includes(farmerId)) {
+          filter.farmerId = farmerId;
+        } else {
+          return NextResponse.json({ success: true, count: 0, data: [] });
+        }
+      } else {
+        filter.farmerId = { $in: allowedFarmerIds };
+      }
+    } else if (farmerId) {
+      filter.farmerId = farmerId;
+    }
+
     if (category) filter.category = category;
     if (severity) filter.severity = severity;
     if (unreadOnly) filter.isRead = false;

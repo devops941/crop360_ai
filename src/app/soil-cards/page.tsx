@@ -71,14 +71,9 @@ export default function SoilCardsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#245C3A]/10 print:hidden">
         <div>
-          <div className="flex items-center gap-2.5 mb-1">
-            <span className="px-2 py-0.5 rounded text-[11px] font-bold tracking-wider uppercase bg-[#245C3A]/10 text-[#245C3A] border border-[#245C3A]/20">
-              Module 5
-            </span>
-            <h1 className="text-2xl font-bold tracking-tight text-[#193D2A] dark:text-[#E8F0E9]">
-              Soil Health Card (SHC) Issuance
-            </h1>
-          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-[#193D2A] dark:text-[#E8F0E9] mb-1">
+            Soil Health Card (SHC) Issuance
+          </h1>
           <p className="text-sm text-stone-600 dark:text-stone-400">
             Official government-standard digital soil health certificates with immutable physical snapshot and QR validation.
           </p>
@@ -102,7 +97,7 @@ export default function SoilCardsPage() {
           <Award className="w-10 h-10 text-stone-400 mx-auto mb-3" />
           <h3 className="text-lg font-bold text-stone-800 dark:text-stone-200">No Soil Health Cards Issued</h3>
           <p className="text-sm text-stone-500 max-w-md mx-auto mt-1 mb-4">
-            Soil Health Cards are automatically generated after completing an AI Soil Analysis in Module 4.
+            Soil Health Cards are automatically generated after completing an AI Soil Analysis.
           </p>
           <Link
             href="/soil-reports"
@@ -112,13 +107,13 @@ export default function SoilCardsPage() {
           </Link>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Card Selector on Desktop */}
-          <div className="lg:col-span-4 space-y-2 print:hidden">
+          <div className="lg:col-span-4 lg:sticky lg:top-4 space-y-2 print:hidden">
             <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-2">
               Issued Cards ({cards.length})
             </h3>
-            <div className="space-y-2 max-h-[700px] overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-[calc(100vh-140px)] overflow-y-auto pr-1">
               {cards.map((card) => {
                 const isSelected = card._id === activeCard?._id;
                 return (

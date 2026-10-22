@@ -4,6 +4,7 @@ import { connectDB } from '@/lib/mongodb';
 import { LandPreparationPlan } from '@/models/land-prep.model';
 import { AuditLogger } from '@/lib/audit-logger';
 import { AUTH_COOKIE_NAME, verifyAuthToken } from '@/lib/auth';
+import { getTenantScope } from '@/lib/tenant';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -12,6 +13,7 @@ interface RouteContext {
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     await connectDB();
+    const scope = await getTenantScope(request);
     const { id } = await context.params;
     const plan = await LandPreparationPlan.findById(id);
 
@@ -19,13 +21,20 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       return ApiResponse.notFound('Land preparation plan not found');
     }
 
+    if (!scope.isAdmin && !scope.farmerIdStrings.includes(String(plan.farmerId))) {
+      return ApiResponse.forbidden('You do not have permission to modify this land preparation plan');
+    }
+
     const body = await request.json();
     const { stepNumber, isCompleted } = body;
 
     const op = plan.operations.find((o) => o.stepNumber === stepNumber);
     if (op) {
-      op.isCompleted = isCompleted;
-      op.completedDate = isCompleted ? new Date() : undefined;
+      if (op.isCompleted && !isCompleted) {
+        return ApiResponse.badRequest('Completed tillage operation is locked and cannot be reverted');
+      }
+      op.isCompleted = true;
+      op.completedDate = op.completedDate || new Date();
     }
 
     // Recalculate readiness score
@@ -67,3 +76,27 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     return ApiResponse.serverError('Failed to update tillage step', error);
   }
 }
+
+export async function DELETE(request: NextRequest, context: RouteContext) {
+  try {
+    await connectDB();
+    const scope = await getTenantScope(request);
+    const { id } = await context.params;
+    const plan = await LandPreparationPlan.findById(id);
+
+    if (!plan) {
+      return ApiResponse.notFound('Land preparation plan not found');
+    }
+
+    if (!scope.isAdmin && !scope.farmerIdStrings.includes(String(plan.farmerId))) {
+      return ApiResponse.forbidden('You do not have permission to delete this land preparation plan');
+    }
+
+    await LandPreparationPlan.findByIdAndDelete(id);
+
+    return ApiResponse.success(null, 'Land preparation plan deleted successfully');
+  } catch (error) {
+    return ApiResponse.serverError('Failed to delete land preparation plan', error);
+  }
+}
+

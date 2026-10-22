@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   Sparkles,
   Layers,
@@ -16,9 +17,12 @@ import {
   Loader2,
   Coins,
   ArrowRight,
+  Bug,
+  CloudSun,
 } from 'lucide-react';
 import { DataTable, Column } from '@/components/common/data-table';
 import { toast } from 'react-toastify';
+import { CropCareNav, FarmerOption, FarmOption, ActiveCropContext } from '@/components/crop-care/crop-care-nav';
 
 interface SplitApplication {
   stage: string;
@@ -44,6 +48,7 @@ interface NutrientPlanRow extends Record<string, unknown> {
     _id: string;
     name: string;
     farmerCode: string;
+    district?: string;
   };
   farmId?: {
     _id: string;
@@ -53,41 +58,99 @@ interface NutrientPlanRow extends Record<string, unknown> {
   };
 }
 
-interface FarmerOption {
-  _id: string;
-  name: string;
-  farmerCode: string;
-}
-
-interface FarmOption {
-  _id: string;
-  parcelName: string;
-  farmerId: string | { _id: string };
-  totalAreaAcres: number;
-}
-
 export default function NutrientsPage() {
+  const searchParams = useSearchParams();
+  const queryFarmerId = searchParams.get('farmerId') || '';
+  const queryFarmId = searchParams.get('farmId') || '';
+  const queryCropName = searchParams.get('cropName') || '';
+
   const [plans, setPlans] = useState<NutrientPlanRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [farmers, setFarmers] = useState<FarmerOption[]>([]);
   const [farms, setFarms] = useState<FarmOption[]>([]);
+  const [activeCropInfo, setActiveCropInfo] = useState<ActiveCropContext | null>(null);
+
+  // Filter State
+  const [filterFarmerId, setFilterFarmerId] = useState(queryFarmerId);
+  const [filterFarmId, setFilterFarmId] = useState(queryFarmId);
+
+  useEffect(() => {
+    if (queryFarmerId) setFilterFarmerId(queryFarmerId);
+    if (queryFarmId) setFilterFarmId(queryFarmId);
+  }, [queryFarmerId, queryFarmId]);
 
   // Modal
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   // Form Fields
-  const [farmerId, setFarmerId] = useState('');
-  const [farmId, setFarmId] = useState('');
-  const [cropName, setCropName] = useState('Paddy (Rice / Samba)');
+  const [farmerId, setFarmerId] = useState(queryFarmerId || '');
+  const [farmId, setFarmId] = useState(queryFarmId || '');
+  const [cropName, setCropName] = useState(queryCropName || 'Paddy (Rice / Samba)');
   const [varietyName, setVarietyName] = useState('CR 1009 Sub 1');
   const [targetYield, setTargetYield] = useState(28);
   const [organicManure, setOrganicManure] = useState(5);
 
-  const fetchPlans = useCallback(async () => {
+  const loadFarmSowingDetails = useCallback(async (selectedFarmId: string) => {
+    if (!selectedFarmId) return;
+    try {
+      const res = await fetch(`/api/sowing?farmId=${selectedFarmId}`);
+      if (res.ok) {
+        const json = await res.json();
+        const records = json.data || [];
+        if (records.length > 0) {
+          const sow = records[0];
+          setCropName(sow.cropName);
+          setVarietyName(sow.varietyName);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load farm sowing details', e);
+    }
+  }, []);
+
+  const handleOpenModal = () => {
+    const activeFarmer = filterFarmerId || (farmers.length > 0 ? farmers[0]._id : '');
+    setFarmerId(activeFarmer);
+
+    const matchingFarms = farms.filter((fm) => {
+      const fOwnerId = typeof fm.farmerId === 'object' ? fm.farmerId?._id : fm.farmerId;
+      return !activeFarmer || String(fOwnerId) === String(activeFarmer);
+    });
+
+    const activeFarm =
+      filterFarmId && matchingFarms.some((f) => String(f._id) === String(filterFarmId))
+        ? filterFarmId
+        : matchingFarms.length > 0
+        ? matchingFarms[0]._id
+        : '';
+
+    setFarmId(activeFarm);
+    if (activeFarm) {
+      loadFarmSowingDetails(activeFarm);
+    }
+    setShowModal(true);
+  };
+
+  // Sync modal selections when filter changes
+  useEffect(() => {
+    if (filterFarmerId) setFarmerId(filterFarmerId);
+    if (filterFarmId) {
+      setFarmId(filterFarmId);
+      loadFarmSowingDetails(filterFarmId);
+    }
+  }, [filterFarmerId, filterFarmId, loadFarmSowingDetails]);
+
+  const fetchPlans = useCallback(async (fFarmerId?: string, fFarmId?: string) => {
     try {
       setLoading(true);
-      const res = await fetch('/api/nutrients');
+      const params = new URLSearchParams();
+      const targetFarmer = fFarmerId !== undefined ? fFarmerId : filterFarmerId;
+      const targetFarm = fFarmId !== undefined ? fFarmId : filterFarmId;
+      if (targetFarmer) params.append('farmerId', targetFarmer);
+      if (targetFarm) params.append('farmId', targetFarm);
+      const url = `/api/nutrients${params.toString() ? `?${params.toString()}` : ''}`;
+      const res = await fetch(url);
       if (res.ok) {
         const json = await res.json();
         setPlans(json.data || []);
@@ -97,7 +160,7 @@ export default function NutrientsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filterFarmerId, filterFarmId]);
 
   const loadLookups = useCallback(async () => {
     try {
@@ -115,9 +178,20 @@ export default function NutrientsPage() {
   }, []);
 
   useEffect(() => {
-    fetchPlans();
+    fetchPlans(filterFarmerId, filterFarmId);
+  }, [filterFarmerId, filterFarmId, fetchPlans]);
+
+  useEffect(() => {
     loadLookups();
-  }, [fetchPlans, loadLookups]);
+  }, [loadLookups]);
+
+  const displayedPlans = plans.filter((p) => {
+    const fId = typeof p.farmerId === 'object' ? p.farmerId?._id : p.farmerId;
+    const fmId = typeof p.farmId === 'object' ? p.farmId?._id : p.farmId;
+    if (filterFarmerId && String(fId) !== String(filterFarmerId)) return false;
+    if (filterFarmId && String(fmId) !== String(filterFarmId)) return false;
+    return true;
+  });
 
   const filteredFarms = farms.filter((fm) => {
     if (!farmerId) return true;
@@ -276,6 +350,35 @@ export default function NutrientsPage() {
         </div>
       ),
     },
+    {
+      key: 'actions',
+      header: 'Care Actions',
+      render: (r) => {
+        const fId = typeof r.farmerId === 'object' ? r.farmerId?._id : r.farmerId;
+        const fmId = typeof r.farmId === 'object' ? r.farmId?._id : r.farmId;
+        const q = `?farmerId=${fId || ''}&farmId=${fmId || ''}&cropName=${encodeURIComponent(r.cropName || '')}`;
+        return (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Link
+              href={`/pest-detection${q}`}
+              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 hover:bg-rose-100 transition"
+              title="Scout for leaf folding, blast, or stem borers"
+            >
+              <Bug className="h-3 w-3" />
+              <span>Pests</span>
+            </Link>
+            <Link
+              href={`/weather${q}`}
+              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 hover:bg-sky-100 transition"
+              title="Check foliar spray weather window"
+            >
+              <CloudSun className="h-3 w-3" />
+              <span>Spray Window</span>
+            </Link>
+          </div>
+        );
+      },
+    },
   ];
 
   return (
@@ -283,25 +386,17 @@ export default function NutrientsPage() {
       {/* Header Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#E3E8DF] dark:border-stone-800">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="px-2.5 py-0.5 rounded text-[10px] font-mono font-bold bg-[#E7EFE6] dark:bg-emerald-950/70 text-[#245C3A] dark:text-emerald-400 border border-[#CFDEC9] dark:border-emerald-800">
-              MODULE 12
-            </span>
-            <span className="text-xs text-[#687168] dark:text-stone-400 font-medium">
-              • Precision Split Fertigation
-            </span>
-          </div>
-          <h1 className="text-2xl font-bold text-[#252B26] dark:text-white tracking-tight">
+          <h1 className="text-2xl font-bold text-[#252B26] dark:text-white tracking-tight mb-1">
             Fertilizer &amp; Nutrient Management
           </h1>
-          <p className="text-xs text-[#687168] dark:text-[#a0b5a3] mt-0.5">
+          <p className="text-xs text-[#687168] dark:text-[#a0b5a3]">
             ICAR crop response calibrated split-dose nutrition timetables, basal composting, and foliar micronutrient schedules.
           </p>
         </div>
 
         <button
           type="button"
-          onClick={() => setShowModal(true)}
+          onClick={handleOpenModal}
           className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-lg bg-[#245C3A] hover:bg-[#193D2A] dark:bg-[#2d7348] dark:hover:bg-[#245C3A] text-white shadow-xs transition-colors shrink-0"
         >
           <Plus className="h-4 w-4" />
@@ -309,11 +404,35 @@ export default function NutrientsPage() {
         </button>
       </div>
 
+      {/* Unified In-Season Navigation & Filter Bar */}
+      <CropCareNav
+        currentTab="nutrients"
+        farmers={farmers}
+        farms={farms}
+        filterFarmerId={filterFarmerId}
+        filterFarmId={filterFarmId}
+        onFarmerChange={(id) => {
+          setFilterFarmerId(id);
+        }}
+        onFarmChange={(id) => setFilterFarmId(id)}
+        onResetFilter={() => {
+          setFilterFarmerId('');
+          setFilterFarmId('');
+        }}
+        recordCount={displayedPlans.length}
+        recordLabel="nutrition plans"
+        onActiveCropDetected={(ctx) => {
+          setActiveCropInfo(ctx);
+          if (ctx.cropName) setCropName(ctx.cropName);
+          if (ctx.varietyName) setVarietyName(ctx.varietyName);
+        }}
+      />
+
       {/* 4 Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="rounded-xl border border-[#E3E8DF] dark:border-[#245C3A]/30 bg-white dark:bg-[#162218] p-4 shadow-xs transition-colors">
           <span className="text-xs text-[#687168] dark:text-[#9bb19f]">Active Nutrition Plans</span>
-          <p className="text-2xl font-bold text-[#252B26] dark:text-white mt-1">{plans.length}</p>
+          <p className="text-2xl font-bold text-[#252B26] dark:text-white mt-1">{displayedPlans.length}</p>
           <span className="text-[11px] text-[#245C3A] dark:text-emerald-400 flex items-center gap-1 mt-1 font-medium">
             <CheckCircle2 className="h-3 w-3" />
             <span>Target yield calibrated</span>
@@ -324,9 +443,10 @@ export default function NutrientsPage() {
           <span className="text-xs text-[#687168] dark:text-[#9bb19f]">Mean Cost / Acre</span>
           <p className="text-2xl font-bold text-[#245C3A] dark:text-emerald-400 mt-1">
             ₹
-            {plans.length
+            {displayedPlans.length
               ? Math.round(
-                  plans.reduce((acc, p) => acc + p.totalFertilizerCostEstInr, 0) / plans.length
+                  displayedPlans.reduce((acc, p) => acc + p.totalFertilizerCostEstInr, 0) /
+                    displayedPlans.length
                 ).toLocaleString('en-IN')
               : '4,250'}
           </p>
@@ -338,9 +458,10 @@ export default function NutrientsPage() {
         <div className="rounded-xl border border-[#E3E8DF] dark:border-[#245C3A]/30 bg-white dark:bg-[#162218] p-4 shadow-xs transition-colors">
           <span className="text-xs text-[#687168] dark:text-[#9bb19f]">Avg Target Yield</span>
           <p className="text-2xl font-bold text-[#252B26] dark:text-white mt-1">
-            {plans.length
+            {displayedPlans.length
               ? Math.round(
-                  plans.reduce((acc, p) => acc + p.targetYieldQuintalsPerAcre, 0) / plans.length
+                  displayedPlans.reduce((acc, p) => acc + p.targetYieldQuintalsPerAcre, 0) /
+                    displayedPlans.length
                 )
               : 25}{' '}
             <span className="text-xs font-normal text-[#687168]">q/ac</span>
@@ -389,6 +510,15 @@ export default function NutrientsPage() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              {activeCropInfo && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-[11px] text-emerald-800 dark:text-emerald-300">
+                  <Sparkles className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                  <span>
+                    Auto-calibrated for Active Cultivation: <strong>{activeCropInfo.cropName} ({activeCropInfo.varietyName})</strong> — {activeCropInfo.stageName} (DAS {activeCropInfo.daysAfterSowing})
+                  </span>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-[#252B26] dark:text-stone-200 mb-1">
@@ -397,8 +527,19 @@ export default function NutrientsPage() {
                   <select
                     value={farmerId}
                     onChange={(e) => {
-                      setFarmerId(e.target.value);
-                      setFarmId('');
+                      const newFarmerId = e.target.value;
+                      setFarmerId(newFarmerId);
+                      const newMatchingFarms = farms.filter((fm) => {
+                        const fOwnerId = typeof fm.farmerId === 'object' ? fm.farmerId?._id : fm.farmerId;
+                        return String(fOwnerId) === String(newFarmerId);
+                      });
+                      if (newMatchingFarms.length > 0) {
+                        const firstFarmId = newMatchingFarms[0]._id;
+                        setFarmId(firstFarmId);
+                        loadFarmSowingDetails(firstFarmId);
+                      } else {
+                        setFarmId('');
+                      }
                     }}
                     required
                     className="w-full px-3 py-2 text-xs rounded-lg border border-[#E3E8DF] dark:border-stone-700 bg-white dark:bg-stone-800 text-[#252B26] dark:text-stone-100 focus:outline-none focus:border-[#245C3A]"
@@ -418,7 +559,13 @@ export default function NutrientsPage() {
                   </label>
                   <select
                     value={farmId}
-                    onChange={(e) => setFarmId(e.target.value)}
+                    onChange={(e) => {
+                      const newFarmId = e.target.value;
+                      setFarmId(newFarmId);
+                      if (newFarmId) {
+                        loadFarmSowingDetails(newFarmId);
+                      }
+                    }}
                     required
                     disabled={!farmerId}
                     className="w-full px-3 py-2 text-xs rounded-lg border border-[#E3E8DF] dark:border-stone-700 bg-white dark:bg-stone-800 text-[#252B26] dark:text-stone-100 focus:outline-none focus:border-[#245C3A]"
@@ -511,12 +658,34 @@ export default function NutrientsPage() {
 
       {/* Table */}
       <DataTable
-        data={plans}
+        data={displayedPlans}
         columns={columns}
         searchPlaceholder="Search nutrient plans by crop, variety, or farmer..."
         searchKey="cropName"
         emptyMessage="No nutrient plans generated yet. Click 'Formulate Nutrient Plan' to calculate your first split dosage timetable."
       />
+
+      {/* Workflow Next Step Banner */}
+      <div className="bg-gradient-to-r from-[#245C3A]/10 via-[#245C3A]/5 to-transparent dark:from-[#245C3A]/20 p-4 rounded-xl border border-[#245C3A]/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h3 className="text-xs font-bold text-[#245C3A] dark:text-emerald-300 uppercase tracking-wider">
+            In-Season Workflow • Step 4 of 6
+          </h3>
+          <p className="text-sm font-semibold text-stone-800 dark:text-stone-100 mt-0.5">
+            AI Pest &amp; Disease Early Detection
+          </p>
+          <p className="text-xs text-stone-600 dark:text-stone-400">
+            Scan crop leaves for fungal lesions, stem borers, and chlorophyll loss to safeguard yield.
+          </p>
+        </div>
+        <Link
+          href={`/pest-detection?farmerId=${filterFarmerId || ''}&farmId=${filterFarmId || ''}`}
+          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-[#245C3A] hover:bg-[#193D2A] text-white shadow-xs transition shrink-0"
+        >
+          <span>Next: Pest &amp; Disease Detection</span>
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      </div>
     </div>
   );
 }

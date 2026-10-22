@@ -2,28 +2,102 @@ import { NextRequest } from 'next/server';
 import { ApiResponse } from '@/lib/api-response';
 import { connectDB } from '@/lib/mongodb';
 import { IrrigationScheduleModel } from '@/models/irrigation.model';
+import { SowingRecord } from '@/models/sowing.model';
+import { Farm } from '@/models/farm.model';
 import { AuditLogger } from '@/lib/audit-logger';
 import { AUTH_COOKIE_NAME, verifyAuthToken } from '@/lib/auth';
+import { getTenantScope } from '@/lib/tenant';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
     await connectDB();
+    const scope = await getTenantScope(request);
     const { searchParams } = new URL(request.url);
     const farmId = searchParams.get('farmId');
     const farmerId = searchParams.get('farmerId');
     const status = searchParams.get('status');
 
     const filter: Record<string, unknown> = {};
+    if (!scope.isAdmin) {
+      if (farmerId) {
+        if (scope.farmerIdStrings.includes(String(farmerId))) {
+          filter.farmerId = farmerId;
+        } else {
+          return ApiResponse.success([], 'No records found');
+        }
+      } else {
+        filter.farmerId = { $in: scope.farmerIds };
+      }
+    } else if (farmerId) {
+      filter.farmerId = farmerId;
+    }
+
     if (farmId) filter.farmId = farmId;
-    if (farmerId) filter.farmerId = farmerId;
     if (status) filter.status = status;
 
-    const schedules = await IrrigationScheduleModel.find(filter)
+    let schedules = await IrrigationScheduleModel.find(filter)
       .populate('farmerId', 'name farmerCode phone district')
       .populate('farmId', 'parcelName surveyNumber totalAreaAcres irrigationSource soilType')
       .populate('sowingId', 'sowingDate cropName varietyName')
       .sort({ scheduledDate: -1 })
       .lean();
+
+    // Auto-generate precision irrigation schedule if none exist for active sowing
+    if (schedules.length === 0) {
+      try {
+        const sowingFilter: Record<string, unknown> = {};
+        if (!scope.isAdmin) {
+          sowingFilter.farmerId = { $in: scope.farmerIds };
+        }
+        if (farmerId && (scope.isAdmin || scope.farmerIdStrings.includes(String(farmerId)))) {
+          sowingFilter.farmerId = farmerId;
+        }
+        if (farmId) sowingFilter.farmId = farmId;
+
+        const sowings = await SowingRecord.find(sowingFilter);
+        for (const sow of sowings) {
+          const farm = await Farm.findById(sow.farmId);
+          const isDrip = farm?.irrigationSource?.toLowerCase().includes('drip');
+          const method: 'drip' | 'flood' = isDrip ? 'drip' : 'flood';
+          const kc = 1.05;
+          const refEt = 4.8;
+          const efficiency = method === 'drip' ? 1.1 : 1.6;
+          const netEtc = refEt * kc * 1.0;
+          const acres = farm?.totalAreaAcres || 1;
+          const waterReq = Math.round(netEtc * 4047 * efficiency * acres);
+          const pumpLph = 15000;
+          const runTime = Math.max(30, Math.round((waterReq / pumpLph) * 60));
+
+          await IrrigationScheduleModel.create({
+            farmerId: sow.farmerId,
+            farmId: sow.farmId,
+            sowingId: sow._id,
+            cropName: sow.cropName,
+            soilMoisturePercent: 48,
+            cropCoefficientKc: kc,
+            referenceEtMm: refEt,
+            calculatedWaterRequirementLitersPerAcre: Math.round(netEtc * 4047 * efficiency),
+            irrigationMethod: method,
+            pumpDischargeRateLph: pumpLph,
+            scheduledRunTimeMinutes: runTime,
+            scheduledDate: new Date(),
+            status: 'pending',
+            notes: `Automated precision water budget for ${sow.cropName} (${acres} acres)`,
+          });
+        }
+
+        schedules = await IrrigationScheduleModel.find(filter)
+          .populate('farmerId', 'name farmerCode phone district')
+          .populate('farmId', 'parcelName surveyNumber totalAreaAcres irrigationSource soilType')
+          .populate('sowingId', 'sowingDate cropName varietyName')
+          .sort({ scheduledDate: -1 })
+          .lean();
+      } catch (autoErr) {
+        console.warn('Auto irrigation schedule notice:', autoErr);
+      }
+    }
 
     return ApiResponse.success(schedules);
   } catch (error) {
@@ -34,6 +108,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     await connectDB();
+    const scope = await getTenantScope(request);
     const body = await request.json();
     const {
       farmerId,
@@ -51,6 +126,10 @@ export async function POST(request: NextRequest) {
 
     if (!farmerId || !farmId) {
       return ApiResponse.badRequest('farmerId and farmId are required');
+    }
+
+    if (!scope.isAdmin && !scope.farmerIdStrings.includes(String(farmerId))) {
+      return ApiResponse.forbidden('You do not have permission to schedule irrigation for this farmer');
     }
 
     // Agronomic ETc Calculation
@@ -110,11 +189,21 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     await connectDB();
+    const scope = await getTenantScope(request);
     const body = await request.json();
     const { id, status, waterMeterReadingLiters } = body;
 
     if (!id || !status) {
       return ApiResponse.badRequest('id and status are required');
+    }
+
+    const schedule = await IrrigationScheduleModel.findById(id);
+    if (!schedule) {
+      return ApiResponse.notFound('Irrigation schedule not found');
+    }
+
+    if (!scope.isAdmin && !scope.farmerIdStrings.includes(String(schedule.farmerId))) {
+      return ApiResponse.forbidden('You do not have permission to update this irrigation schedule');
     }
 
     const updateData: Record<string, unknown> = {
@@ -130,9 +219,6 @@ export async function PATCH(request: NextRequest) {
     }
 
     const updated = await IrrigationScheduleModel.findByIdAndUpdate(id, updateData, { new: true });
-    if (!updated) {
-      return ApiResponse.notFound('Irrigation schedule not found');
-    }
 
     return ApiResponse.success(updated, 'Schedule updated');
   } catch (error) {

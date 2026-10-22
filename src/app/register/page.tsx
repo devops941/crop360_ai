@@ -1,3 +1,5 @@
+
+
 'use client';
 
 import React, { useState } from 'react';
@@ -105,7 +107,7 @@ export default function RegisterPage() {
         <div className="mt-6 rounded-xl border border-[#E3E8DF] bg-white p-6 sm:p-8 shadow-xs">
           {/* Google Sign Up */}
           <div>
-            <GoogleSignInButton label="Sign up with Google" />
+            <GoogleSignInButton label="Sign up with Google" mode="register" />
           </div>
 
           <div className="relative my-6">

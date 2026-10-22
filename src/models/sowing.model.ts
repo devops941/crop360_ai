@@ -6,7 +6,15 @@ export interface ISowingRecord extends Document {
   cropName: string;
   varietyName: string;
   sowingDate: Date;
-  plantingMethod: 'direct_seeding' | 'transplanting' | 'dibbling' | 'broadcasting' | 'drip_fertigation_line';
+  plantingMethod:
+    | 'direct_seeding'
+    | 'transplanting'
+    | 'dibbling'
+    | 'broadcasting'
+    | 'drip_fertigation_line'
+    | 'furrow_sett_planting'
+    | 'ridge_dibbling'
+    | 'pit_planting';
   spacingCm: {
     rowToRowCm: number;
     plantToPlantCm: number;
@@ -51,7 +59,16 @@ const SowingRecordSchema = new Schema<ISowingRecord>(
     },
     plantingMethod: {
       type: String,
-      enum: ['direct_seeding', 'transplanting', 'dibbling', 'broadcasting', 'drip_fertigation_line'],
+      enum: [
+        'direct_seeding',
+        'transplanting',
+        'dibbling',
+        'broadcasting',
+        'drip_fertigation_line',
+        'furrow_sett_planting',
+        'ridge_dibbling',
+        'pit_planting',
+      ],
       default: 'transplanting',
     },
     spacingCm: {
@@ -94,3 +111,5 @@ const SowingRecordSchema = new Schema<ISowingRecord>(
 export const SowingRecord: Model<ISowingRecord> =
   mongoose.models.SowingRecord ||
   mongoose.model<ISowingRecord>('SowingRecord', SowingRecordSchema);
+
+export const SowingRecordModel = SowingRecord;

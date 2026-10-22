@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Sprout, Menu, X, User as UserIcon, LogOut, LayoutDashboard } from 'lucide-react';
+import { Sprout, Menu, X, User as UserIcon, LogOut, LayoutDashboard, Loader2 } from 'lucide-react';
 import { SafeUser } from '@/types';
 import { toast } from 'react-toastify';
 
@@ -12,6 +12,8 @@ export function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [user, setUser] = useState<SafeUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   // Check active user session
   const checkSession = async () => {
@@ -34,15 +36,18 @@ export function Navbar() {
     checkSession();
   }, []);
 
-  const handleLogout = async () => {
+  const confirmLogout = async () => {
     try {
+      setLoggingOut(true);
       await fetch('/api/auth/logout', { method: 'POST' });
       setUser(null);
       toast.info('You have been signed out.');
-      router.push('/');
-      router.refresh();
+      setShowLogoutModal(false);
+      // Automatically redirect to home page cleanly
+      window.location.href = '/';
     } catch {
       toast.error('Failed to sign out');
+      setLoggingOut(false);
     }
   };
 
@@ -108,7 +113,7 @@ export function Navbar() {
 
                 <button
                   type="button"
-                  onClick={handleLogout}
+                  onClick={() => setShowLogoutModal(true)}
                   title="Sign Out"
                   className="p-1.5 rounded-lg border border-[#E3E8DF] text-[#687168] hover:text-rose-600 hover:bg-rose-50 transition-colors"
                 >
@@ -189,7 +194,7 @@ export function Navbar() {
                   type="button"
                   onClick={() => {
                     setMobileMenuOpen(false);
-                    handleLogout();
+                    setShowLogoutModal(true);
                   }}
                   className="block w-full py-2 text-center text-xs font-medium rounded-lg border border-[#E3E8DF] text-rose-600 hover:bg-rose-50"
                 >
@@ -214,6 +219,61 @@ export function Navbar() {
                 </Link>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Sign Out Confirmation Modal Popup */}
+      {showLogoutModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl border border-stone-200 p-6 max-w-sm w-full space-y-4 shadow-2xl animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3.5">
+              <div className="h-10 w-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <LogOut className="h-5 w-5" />
+              </div>
+              <div className="flex-1 min-w-0 text-left">
+                <h3 className="text-base font-bold text-[#252B26]">
+                  Confirm Sign Out
+                </h3>
+                <p className="text-xs text-[#687168] mt-1 leading-relaxed">
+                  Are you sure you want to sign out of your Crop360 account?
+                </p>
+                {user?.email && (
+                  <div className="mt-2.5 px-3 py-1.5 rounded-lg bg-stone-50 border border-stone-200 text-[11px] font-mono text-stone-600 truncate">
+                    {user.email}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-stone-100">
+              <button
+                type="button"
+                disabled={loggingOut}
+                onClick={() => setShowLogoutModal(false)}
+                className="px-3.5 py-2 rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-100 text-xs font-semibold transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={loggingOut}
+                onClick={confirmLogout}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-xs transition-colors disabled:opacity-60"
+              >
+                {loggingOut ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Signing Out...</span>
+                  </>
+                ) : (
+                  <>
+                    <LogOut className="h-3.5 w-3.5" />
+                    <span>Okay, Sign Out</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

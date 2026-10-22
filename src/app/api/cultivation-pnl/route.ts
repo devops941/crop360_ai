@@ -4,18 +4,35 @@ import { connectDB } from '@/lib/mongodb';
 import { CropPnlModel } from '@/models/crop-pnl.model';
 import { AuditLogger } from '@/lib/audit-logger';
 import { AUTH_COOKIE_NAME, verifyAuthToken } from '@/lib/auth';
+import { getTenantScope } from '@/lib/tenant';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
     await connectDB();
+    const scope = await getTenantScope(request);
     const { searchParams } = new URL(request.url);
     const farmId = searchParams.get('farmId');
     const farmerId = searchParams.get('farmerId');
     const season = searchParams.get('season');
 
     const filter: Record<string, unknown> = {};
+    if (!scope.isAdmin) {
+      if (farmerId) {
+        if (scope.farmerIdStrings.includes(String(farmerId))) {
+          filter.farmerId = farmerId;
+        } else {
+          return ApiResponse.success([], 'No records found');
+        }
+      } else {
+        filter.farmerId = { $in: scope.farmerIds };
+      }
+    } else if (farmerId) {
+      filter.farmerId = farmerId;
+    }
+
     if (farmId) filter.farmId = farmId;
-    if (farmerId) filter.farmerId = farmerId;
     if (season) filter.season = season;
 
     const ledgers = await CropPnlModel.find(filter)
@@ -34,6 +51,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     await connectDB();
+    const scope = await getTenantScope(request);
     const body = await request.json();
     const {
       farmerId,
@@ -53,6 +71,10 @@ export async function POST(request: NextRequest) {
       return ApiResponse.badRequest(
         'farmerId, farmId, cropName, varietyName, costBreakdown, and grossMandiRevenueInr are required'
       );
+    }
+
+    if (!scope.isAdmin && !scope.farmerIdStrings.includes(String(farmerId))) {
+      return ApiResponse.forbidden('You do not have permission to record cultivation P&L for this farmer');
     }
 
     const {

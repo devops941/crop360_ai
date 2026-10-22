@@ -2,25 +2,53 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Script from 'next/script';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'react-toastify';
 import { Loader2 } from 'lucide-react';
 
 interface GoogleSignInButtonProps {
   label?: string;
+  mode?: 'login' | 'register';
 }
 
-export function GoogleSignInButton({ label = 'Continue with Google' }: GoogleSignInButtonProps) {
+export function GoogleSignInButton({
+  label = 'Continue with Google',
+  mode,
+}: GoogleSignInButtonProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
   const [loading, setLoading] = useState(false);
   const [scriptLoaded, setScriptLoaded] = useState(false);
   const googleBtnContainerRef = useRef<HTMLDivElement>(null);
 
+  const isRegister =
+    mode === 'register' ||
+    Boolean(pathname?.includes('/register')) ||
+    label.toLowerCase().includes('sign up');
+  const effectiveMode = isRegister ? 'register' : 'login';
+
   const googleClientId =
     process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
     '362181837457-i3tj8e66mm4mpraqc7l761q948jmvkb6.apps.googleusercontent.com';
+
+  const parseGoogleJwt = (token: string) => {
+    try {
+      const base64Url = token.split('.')[1];
+      if (!base64Url) return null;
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(
+        atob(base64)
+          .split('')
+          .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+          .join('')
+      );
+      return JSON.parse(jsonPayload);
+    } catch {
+      return null;
+    }
+  };
 
   const handleCredentialResponse = useCallback(
     async (response: { credential?: string }) => {
@@ -31,18 +59,59 @@ export function GoogleSignInButton({ label = 'Continue with Google' }: GoogleSig
 
       setLoading(true);
       try {
+        const currentPath = typeof window !== 'undefined' ? window.location.pathname : (pathname || '');
+        const currentIsRegister =
+          mode === 'register' ||
+          currentPath.includes('/register') ||
+          label.toLowerCase().includes('sign up');
+        const sendMode = currentIsRegister ? 'register' : 'login';
+
+        const profile = response.credential ? parseGoogleJwt(response.credential) : null;
+        const userInfo = profile
+          ? {
+              email: profile.email,
+              name:
+                profile.name ||
+                `${profile.given_name || ''} ${profile.family_name || ''}`.trim() ||
+                profile.email?.split('@')[0],
+              picture: profile.picture,
+              sub: profile.sub,
+            }
+          : undefined;
+
         const res = await fetch('/api/auth/google', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ credential: response.credential }),
+          body: JSON.stringify({
+            credential: response.credential,
+            mode: sendMode,
+            userInfo,
+          }),
         });
 
         const data = await res.json();
         if (!res.ok) {
+          if (
+            data.code === 'USER_NOT_REGISTERED' ||
+            data.error?.code === 'USER_NOT_REGISTERED' ||
+            data.message?.toLowerCase().includes('not registered') ||
+            data.message?.toLowerCase().includes('no registered') ||
+            data.message?.toLowerCase().includes('register first')
+          ) {
+            toast.error('No registered account found with this Google account! Please register first.');
+            setTimeout(() => {
+              router.push('/register');
+            }, 1200);
+            return;
+          }
           throw new Error(data.message || 'Google authentication failed');
         }
 
-        toast.success(`Welcome, ${data.data.name}! Signed in with Google.`);
+        toast.success(
+          sendMode === 'register'
+            ? `Welcome to Crop360 AI, ${data.data.name}!`
+            : `Welcome back, ${data.data.name}!`
+        );
         router.push(callbackUrl);
         router.refresh();
       } catch (err) {
@@ -51,8 +120,13 @@ export function GoogleSignInButton({ label = 'Continue with Google' }: GoogleSig
         setLoading(false);
       }
     },
-    [callbackUrl, router]
+    [callbackUrl, router, mode, pathname, label]
   );
+
+  const handleCredentialRef = useRef(handleCredentialResponse);
+  useEffect(() => {
+    handleCredentialRef.current = handleCredentialResponse;
+  }, [handleCredentialResponse]);
 
   useEffect(() => {
     if (!scriptLoaded) return;
@@ -63,11 +137,14 @@ export function GoogleSignInButton({ label = 'Continue with Google' }: GoogleSig
         // @ts-expect-error Google Identity Services
         window.google.accounts.id.initialize({
           client_id: googleClientId,
-          callback: handleCredentialResponse,
+          callback: (response: { credential?: string }) => {
+            handleCredentialRef.current?.(response);
+          },
           auto_select: false,
         });
 
         if (googleBtnContainerRef.current) {
+          googleBtnContainerRef.current.innerHTML = '';
           // Render official Google button
           // @ts-expect-error Google Identity Services
           window.google.accounts.id.renderButton(googleBtnContainerRef.current, {
@@ -75,7 +152,7 @@ export function GoogleSignInButton({ label = 'Continue with Google' }: GoogleSig
             size: 'large',
             type: 'standard',
             shape: 'rectangular',
-            text: label.toLowerCase().includes('sign up') ? 'signup_with' : 'signin_with',
+            text: isRegister ? 'signup_with' : 'signin_with',
             logo_alignment: 'left',
             width: googleBtnContainerRef.current.clientWidth || 380,
           });
@@ -84,7 +161,7 @@ export function GoogleSignInButton({ label = 'Continue with Google' }: GoogleSig
         console.error('Error initializing Google Sign-In:', e);
       }
     }
-  }, [scriptLoaded, googleClientId, label, handleCredentialResponse]);
+  }, [scriptLoaded, googleClientId, isRegister]);
 
   const handleCustomButtonClick = () => {
     // @ts-expect-error Google Identity Services

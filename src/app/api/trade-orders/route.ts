@@ -4,18 +4,35 @@ import { connectDB } from '@/lib/mongodb';
 import { TradeOrderModel } from '@/models/trade-order.model';
 import { AuditLogger } from '@/lib/audit-logger';
 import { AUTH_COOKIE_NAME, verifyAuthToken } from '@/lib/auth';
+import { getTenantScope } from '@/lib/tenant';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
     await connectDB();
+    const scope = await getTenantScope(request);
     const { searchParams } = new URL(request.url);
     const farmId = searchParams.get('farmId');
     const farmerId = searchParams.get('farmerId');
     const status = searchParams.get('status');
 
     const filter: Record<string, unknown> = {};
+    if (!scope.isAdmin) {
+      if (farmerId) {
+        if (scope.farmerIdStrings.includes(String(farmerId))) {
+          filter.farmerId = farmerId;
+        } else {
+          return ApiResponse.success([], 'No records found');
+        }
+      } else {
+        filter.farmerId = { $in: scope.farmerIds };
+      }
+    } else if (farmerId) {
+      filter.farmerId = farmerId;
+    }
+
     if (farmId) filter.farmId = farmId;
-    if (farmerId) filter.farmerId = farmerId;
     if (status) filter.orderStatus = status;
 
     const orders = await TradeOrderModel.find(filter)
@@ -34,6 +51,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     await connectDB();
+    const scope = await getTenantScope(request);
     const body = await request.json();
     const {
       farmerId,
@@ -55,6 +73,10 @@ export async function POST(request: NextRequest) {
       return ApiResponse.badRequest(
         'farmerId, farmId, commodity, buyerName, buyerContactPhone, agreedPrice, and quantity are required'
       );
+    }
+
+    if (!scope.isAdmin && !scope.farmerIdStrings.includes(String(farmerId))) {
+      return ApiResponse.forbidden('You do not have permission to create trade contracts for this farmer');
     }
 
     const totalAmt = Number(agreedPricePerQuintalInr) * Number(quantityQuintals);
@@ -107,6 +129,7 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     await connectDB();
+    const scope = await getTenantScope(request);
     const body = await request.json();
     const { id, orderStatus, paymentStatus } = body;
 
@@ -114,13 +137,19 @@ export async function PATCH(request: NextRequest) {
       return ApiResponse.badRequest('id and orderStatus are required');
     }
 
+    const order = await TradeOrderModel.findById(id);
+    if (!order) {
+      return ApiResponse.notFound('Trade order not found');
+    }
+
+    if (!scope.isAdmin && !scope.farmerIdStrings.includes(String(order.farmerId))) {
+      return ApiResponse.forbidden('You do not have permission to update this trade contract');
+    }
+
     const update: Record<string, unknown> = { orderStatus };
     if (paymentStatus) update.paymentStatus = paymentStatus;
 
     const updated = await TradeOrderModel.findByIdAndUpdate(id, update, { new: true });
-    if (!updated) {
-      return ApiResponse.notFound('Trade order not found');
-    }
 
     // Audit Log
     try {

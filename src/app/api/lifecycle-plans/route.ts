@@ -4,6 +4,11 @@ import { connectDB } from '@/lib/mongodb';
 import { LifecyclePlanModel } from '@/models/lifecycle-plan.model';
 import { AuditLogger } from '@/lib/audit-logger';
 import { AUTH_COOKIE_NAME, verifyAuthToken } from '@/lib/auth';
+import { getTenantScope } from '@/lib/tenant';
+
+import { SowingRecordModel } from '@/models/sowing.model';
+
+export const dynamic = 'force-dynamic';
 
 function generateDefaultPhases(durationDays: number) {
   const p1End = Math.round(durationDays * 0.15);
@@ -53,22 +58,74 @@ function generateDefaultPhases(durationDays: number) {
 export async function GET(request: NextRequest) {
   try {
     await connectDB();
+    const scope = await getTenantScope(request);
     const { searchParams } = new URL(request.url);
     const farmId = searchParams.get('farmId');
     const farmerId = searchParams.get('farmerId');
     const status = searchParams.get('status');
 
     const filter: Record<string, unknown> = {};
+    if (!scope.isAdmin) {
+      if (farmerId) {
+        if (scope.farmerIdStrings.includes(String(farmerId))) {
+          filter.farmerId = farmerId;
+        } else {
+          return ApiResponse.success([], 'No records found');
+        }
+      } else {
+        filter.farmerId = { $in: scope.farmerIds };
+      }
+    } else if (farmerId) {
+      filter.farmerId = farmerId;
+    }
+
     if (farmId) filter.farmId = farmId;
-    if (farmerId) filter.farmerId = farmerId;
     if (status) filter.status = status;
 
-    const plans = await LifecyclePlanModel.find(filter)
+    let plans = await LifecyclePlanModel.find(filter)
       .populate('farmerId', 'name farmerCode phone district')
       .populate('farmId', 'parcelName surveyNumber totalAreaAcres soilType')
       .populate('sowingId', 'sowingDate cropName varietyName')
       .sort({ createdAt: -1 })
       .lean();
+
+    // Auto-generate plan from active sowing if empty for this parcel
+    if (plans.length === 0 && (farmId || farmerId)) {
+      const sowFilter: Record<string, unknown> = {};
+      if (farmId) sowFilter.farmId = farmId;
+      if (farmerId) sowFilter.farmerId = farmerId;
+      if (!scope.isAdmin) sowFilter.farmerId = { $in: scope.farmerIds };
+
+      const activeSowing = await SowingRecordModel.findOne(sowFilter).sort({ sowingDate: -1 }).lean();
+      if (activeSowing) {
+        const sowDate = new Date(activeSowing.sowingDate || Date.now());
+        const duration = 115;
+        const targetHarvest = new Date(sowDate.getTime() + duration * 24 * 60 * 60 * 1000);
+        const phases = generateDefaultPhases(duration);
+
+        const created = await LifecyclePlanModel.create({
+          farmerId: activeSowing.farmerId,
+          farmId: activeSowing.farmId,
+          sowingId: activeSowing._id,
+          cropName: activeSowing.cropName,
+          varietyName: activeSowing.varietyName,
+          sowingDate: sowDate,
+          targetHarvestDate: targetHarvest,
+          totalDurationDays: duration,
+          phases,
+          riskFactors: ['Late monsoon withdrawal risk', 'Lodging vulnerability under heavy nitrogen top-dressing'],
+          status: 'active',
+          notes: 'Auto-calibrated ICAR crop lifecycle baseline generated from active sowing record.',
+        });
+
+        const populated = await LifecyclePlanModel.findById(created._id)
+          .populate('farmerId', 'name farmerCode phone district')
+          .populate('farmId', 'parcelName surveyNumber totalAreaAcres soilType')
+          .populate('sowingId', 'sowingDate cropName varietyName')
+          .lean();
+        if (populated) plans = [populated as any];
+      }
+    }
 
     return ApiResponse.success(plans);
   } catch (error) {
@@ -79,6 +136,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     await connectDB();
+    const scope = await getTenantScope(request);
     const body = await request.json();
     const {
       farmerId,
@@ -96,6 +154,10 @@ export async function POST(request: NextRequest) {
 
     if (!farmerId || !farmId || !cropName || !varietyName) {
       return ApiResponse.badRequest('farmerId, farmId, cropName, and varietyName are required');
+    }
+
+    if (!scope.isAdmin && !scope.farmerIdStrings.includes(String(farmerId))) {
+      return ApiResponse.forbidden('You do not have permission to create lifecycle plans for this farmer');
     }
 
     const sDate = sowingDate ? new Date(sowingDate) : new Date();

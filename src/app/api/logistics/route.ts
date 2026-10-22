@@ -4,18 +4,35 @@ import { connectDB } from '@/lib/mongodb';
 import { LogisticsModel } from '@/models/logistics.model';
 import { AuditLogger } from '@/lib/audit-logger';
 import { AUTH_COOKIE_NAME, verifyAuthToken } from '@/lib/auth';
+import { getTenantScope } from '@/lib/tenant';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
     await connectDB();
+    const scope = await getTenantScope(request);
     const { searchParams } = new URL(request.url);
     const farmId = searchParams.get('farmId');
     const farmerId = searchParams.get('farmerId');
     const status = searchParams.get('status');
 
     const filter: Record<string, unknown> = {};
+    if (!scope.isAdmin) {
+      if (farmerId) {
+        if (scope.farmerIdStrings.includes(String(farmerId))) {
+          filter.farmerId = farmerId;
+        } else {
+          return ApiResponse.success([], 'No records found');
+        }
+      } else {
+        filter.farmerId = { $in: scope.farmerIds };
+      }
+    } else if (farmerId) {
+      filter.farmerId = farmerId;
+    }
+
     if (farmId) filter.farmId = farmId;
-    if (farmerId) filter.farmerId = farmerId;
     if (status) filter.deliveryStatus = status;
 
     const trips = await LogisticsModel.find(filter)
@@ -34,6 +51,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     await connectDB();
+    const scope = await getTenantScope(request);
     const body = await request.json();
     const {
       farmerId,
@@ -56,6 +74,10 @@ export async function POST(request: NextRequest) {
       return ApiResponse.badRequest(
         'farmerId, farmId, vehicleRegistrationNo, driverName, driverPhone, pickupLocation, and destinationMandi are required'
       );
+    }
+
+    if (!scope.isAdmin && !scope.farmerIdStrings.includes(String(farmerId))) {
+      return ApiResponse.forbidden('You do not have permission to book logistics for this farmer');
     }
 
     const trip = await LogisticsModel.create({
@@ -103,6 +125,7 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     await connectDB();
+    const scope = await getTenantScope(request);
     const body = await request.json();
     const { id, deliveryStatus } = body;
 
@@ -110,15 +133,20 @@ export async function PATCH(request: NextRequest) {
       return ApiResponse.badRequest('id and deliveryStatus are required');
     }
 
+    const trip = await LogisticsModel.findById(id);
+    if (!trip) {
+      return ApiResponse.notFound('Logistics dispatch record not found');
+    }
+
+    if (!scope.isAdmin && !scope.farmerIdStrings.includes(String(trip.farmerId))) {
+      return ApiResponse.forbidden('You do not have permission to update this logistics trip');
+    }
+
     const updated = await LogisticsModel.findByIdAndUpdate(
       id,
       { deliveryStatus },
       { new: true }
     );
-
-    if (!updated) {
-      return ApiResponse.notFound('Logistics dispatch record not found');
-    }
 
     // Audit Log
     try {

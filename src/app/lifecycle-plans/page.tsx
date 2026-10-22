@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   Sparkles,
   Calendar,
@@ -19,6 +20,12 @@ import {
   MapPin,
   ListTodo,
 } from 'lucide-react';
+import {
+  PlanningNav,
+  FarmerOption,
+  FarmOption as PlanningFarmOption,
+  ActiveCropContext,
+} from '@/components/planning/planning-nav';
 
 interface LifecyclePhase {
   phaseName: string;
@@ -60,54 +67,82 @@ const CROP_PRESETS = [
 ];
 
 export default function LifecyclePlanPage() {
+  const searchParams = useSearchParams();
+  const queryFarmerId = searchParams?.get('farmerId') || '';
+  const queryFarmId = searchParams?.get('farmId') || '';
+  const queryCropName = searchParams?.get('cropName') || '';
+
   const [plans, setPlans] = useState<LifecyclePlan[]>([]);
+  const [farmers, setFarmers] = useState<FarmerOption[]>([]);
   const [farms, setFarms] = useState<FarmOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
+  const [activeCropInfo, setActiveCropInfo] = useState<ActiveCropContext | null>(null);
+
+  // Filter State
+  const [filterFarmerId, setFilterFarmerId] = useState(queryFarmerId);
+  const [filterFarmId, setFilterFarmId] = useState(queryFarmId);
+
+  useEffect(() => {
+    if (queryFarmerId) setFilterFarmerId(queryFarmerId);
+    if (queryFarmId) setFilterFarmId(queryFarmId);
+  }, [queryFarmerId, queryFarmId]);
 
   const [formData, setFormData] = useState({
-    farmId: '',
-    cropName: 'Paddy / Rice',
+    farmId: queryFarmId || '',
+    cropName: queryCropName || 'Paddy / Rice',
     varietyName: 'CO 51 (Short Duration)',
     sowingDate: new Date().toISOString().split('T')[0],
     totalDurationDays: 110,
     status: 'active',
   });
 
-  const loadData = async () => {
+  const loadData = useCallback(async (fFarmerId?: string, fFarmId?: string) => {
     try {
       setLoading(true);
-      const [plansRes, farmsRes] = await Promise.all([
-        fetch('/api/lifecycle-plans'),
+      const params = new URLSearchParams();
+      const targetFarmer = fFarmerId !== undefined ? fFarmerId : filterFarmerId;
+      const targetFarm = fFarmId !== undefined ? fFarmId : filterFarmId;
+      if (targetFarmer) params.append('farmerId', targetFarmer);
+      if (targetFarm) params.append('farmId', targetFarm);
+      const url = `/api/lifecycle-plans${params.toString() ? `?${params.toString()}` : ''}`;
+
+      const [plansRes, farmsRes, farmersRes] = await Promise.all([
+        fetch(url),
         fetch('/api/farms'),
+        fetch('/api/farmers'),
       ]);
 
       if (plansRes.ok) {
         const json = await plansRes.json();
-        setPlans(json.data || []);
-        if (json.data?.length > 0 && !selectedPlanId) {
-          setSelectedPlanId(json.data[0]._id);
+        const pList = json.data || [];
+        setPlans(pList);
+        if (pList.length > 0) {
+          setSelectedPlanId((prev) => (pList.some((p: any) => p._id === prev) ? prev : pList[0]._id));
+        } else {
+          setSelectedPlanId(null);
         }
       }
       if (farmsRes.ok) {
         const json = await farmsRes.json();
         setFarms(json.data || []);
-        if (json.data?.length > 0 && !formData.farmId) {
-          setFormData((prev) => ({ ...prev, farmId: json.data[0]._id }));
-        }
+      }
+      if (farmersRes.ok) {
+        const json = await farmersRes.json();
+        setFarmers(json.data || []);
       }
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [filterFarmerId, filterFarmId]);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    loadData(filterFarmerId, filterFarmId);
+  }, [filterFarmerId, filterFarmId, loadData]);
 
   const handlePresetSelect = (preset: (typeof CROP_PRESETS)[0]) => {
     setFormData((prev) => ({
@@ -158,7 +193,15 @@ export default function LifecyclePlanPage() {
     }
   };
 
-  const activePlan = plans.find((p) => p._id === selectedPlanId) || plans[0];
+  const displayedPlans = plans.filter((p) => {
+    const fId = typeof p.farmerId === 'object' ? p.farmerId?._id : p.farmerId;
+    const fmId = typeof p.farmId === 'object' ? p.farmId?._id : p.farmId;
+    if (filterFarmerId && fId !== filterFarmerId) return false;
+    if (filterFarmId && fmId !== filterFarmId) return false;
+    return true;
+  });
+
+  const activePlan = displayedPlans.find((p) => p._id === selectedPlanId) || displayedPlans[0];
 
   const calculateDaysSinceSowing = (sowingDateStr: string) => {
     const sDate = new Date(sowingDateStr);
@@ -167,9 +210,9 @@ export default function LifecyclePlanPage() {
     return Math.floor(diffTime / (1000 * 60 * 60 * 24));
   };
 
-  const activeCount = plans.filter((p) => p.status === 'active').length;
-  const totalDurationAvg = plans.length
-    ? Math.round(plans.reduce((acc, p) => acc + (p.totalDurationDays || 0), 0) / plans.length)
+  const activeCount = displayedPlans.filter((p) => p.status === 'active').length;
+  const totalDurationAvg = displayedPlans.length
+    ? Math.round(displayedPlans.reduce((acc, p) => acc + (p.totalDurationDays || 0), 0) / displayedPlans.length)
     : 120;
 
   return (
@@ -178,15 +221,12 @@ export default function LifecyclePlanPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span className="px-2.5 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider bg-[#E7EFE6] dark:bg-[#1e3826] text-[#245C3A] dark:text-[#8ee0a8] border border-[#CFDEC9] dark:border-[#2d5c3a]">
-              Module 16 &bull; Phase 6
-            </span>
             <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
               <Sparkles className="h-3.5 w-3.5" /> AI Autonomous Lifecycle Orchestrator
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-stone-900 dark:text-white">
-            Crop Lifecycle & Phenology Planner
+            Crop Lifecycle &amp; Phenology Planner
           </h1>
           <p className="text-sm text-stone-600 dark:text-[#a0b5a3] mt-1 max-w-2xl">
             Synthesize soil data, planting calendar, irrigation scheduling, and fertility splits into an automated master agronomic roadmap.
@@ -195,21 +235,52 @@ export default function LifecyclePlanPage() {
 
         <div className="flex items-center gap-3">
           <Link
-            href="/crop-tasks"
+            href={`/crop-tasks${filterFarmerId ? `?farmerId=${filterFarmerId}&farmId=${filterFarmId}` : ''}`}
             className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold border border-[#245C3A]/30 text-[#245C3A] dark:text-emerald-400 hover:bg-[#E7EFE6] dark:hover:bg-[#193D2A] transition-colors"
           >
             <ListTodo className="h-4 w-4" />
-            Module 17: Task Engine &rarr;
+            <span>Task Engine &rarr;</span>
           </Link>
           <button
             onClick={() => setShowModal(true)}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-[#245C3A] hover:bg-[#193D2A] dark:bg-[#245C3A] dark:hover:bg-[#1e4e31] shadow-xs transition-colors cursor-pointer"
           >
             <Plus className="h-4 w-4" />
-            Generate Lifecycle Plan
+            <span>Generate Lifecycle Plan</span>
           </button>
         </div>
       </div>
+
+      {/* Unified Planning Navigation & Filter Bar */}
+      <PlanningNav
+        currentTab="lifecycle"
+        farmers={farmers}
+        farms={farms}
+        filterFarmerId={filterFarmerId}
+        filterFarmId={filterFarmId}
+        onFarmerChange={(id) => {
+          setFilterFarmerId(id);
+          setFilterFarmId('');
+        }}
+        onFarmChange={(id) => setFilterFarmId(id)}
+        onResetFilter={() => {
+          setFilterFarmerId('');
+          setFilterFarmId('');
+        }}
+        recordCount={displayedPlans.length}
+        recordLabel="lifecycle plans"
+        onActiveCropDetected={(ctx) => {
+          setActiveCropInfo(ctx);
+          setFormData((prev) => ({
+            ...prev,
+            farmId: ctx.farmId || prev.farmId,
+            cropName: ctx.cropName || prev.cropName,
+            varietyName: ctx.varietyName || prev.varietyName,
+            sowingDate: ctx.sowingDate ? new Date(ctx.sowingDate).toISOString().split('T')[0] : prev.sowingDate,
+            totalDurationDays: ctx.totalDurationDays || prev.totalDurationDays,
+          }));
+        }}
+      />
 
       {/* Metric Cards Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -254,7 +325,7 @@ export default function LifecyclePlanPage() {
             </div>
           </div>
           <div className="mt-2 text-2xl font-bold text-emerald-600 dark:text-emerald-400">Connected</div>
-          <p className="mt-1 text-[11px] text-stone-500 dark:text-[#889988]">To Module 18 Harvest Pred.</p>
+          <p className="mt-1 text-[11px] text-stone-500 dark:text-[#889988]">To Harvest Prediction</p>
         </div>
       </div>
 

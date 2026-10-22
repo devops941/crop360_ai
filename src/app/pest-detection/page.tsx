@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   Bug,
   AlertTriangle,
@@ -18,7 +19,9 @@ import {
   ShieldCheck,
   Stethoscope,
   Info,
+  CloudSun,
 } from 'lucide-react';
+import { CropCareNav, FarmerOption, FarmOption, ActiveCropContext } from '@/components/crop-care/crop-care-nav';
 
 interface PestDetectionRecord {
   _id: string;
@@ -37,12 +40,6 @@ interface PestDetectionRecord {
   photoUrl?: string;
   status: 'active' | 'under_treatment' | 'resolved';
   createdAt: string;
-}
-
-interface FarmOption {
-  _id: string;
-  parcelName: string;
-  farmerId: { _id: string; name: string };
 }
 
 const COMMON_PEST_PRESETS = [
@@ -99,9 +96,26 @@ const COMMON_PEST_PRESETS = [
 ];
 
 export default function PestDetectionPage() {
+  const searchParams = useSearchParams();
+  const queryFarmerId = searchParams.get('farmerId') || '';
+  const queryFarmId = searchParams.get('farmId') || '';
+  const queryCropName = searchParams.get('cropName') || '';
+
   const [detections, setDetections] = useState<PestDetectionRecord[]>([]);
+  const [farmers, setFarmers] = useState<FarmerOption[]>([]);
   const [farms, setFarms] = useState<FarmOption[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeCropInfo, setActiveCropInfo] = useState<ActiveCropContext | null>(null);
+
+  // Unified Filter State
+  const [filterFarmerId, setFilterFarmerId] = useState(queryFarmerId);
+  const [filterFarmId, setFilterFarmId] = useState(queryFarmId);
+
+  useEffect(() => {
+    if (queryFarmerId) setFilterFarmerId(queryFarmerId);
+    if (queryFarmId) setFilterFarmId(queryFarmId);
+  }, [queryFarmerId, queryFarmId]);
+
   const [statusFilter, setStatusFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
@@ -109,8 +123,8 @@ export default function PestDetectionPage() {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
-    farmId: '',
-    cropName: 'Paddy / Rice',
+    farmId: queryFarmId || '',
+    cropName: queryCropName || 'Paddy / Rice',
     pestDiseaseName: 'Brown Planthopper (BPH)',
     scientificName: 'Nilaparvata lugens',
     detectedCategory: 'insect_pest',
@@ -123,12 +137,58 @@ export default function PestDetectionPage() {
     status: 'active',
   });
 
-  const loadData = async () => {
+  const loadFarmSowingDetails = useCallback(async (selectedFarmId: string) => {
+    if (!selectedFarmId) return;
+    try {
+      const res = await fetch(`/api/sowing?farmId=${selectedFarmId}`);
+      if (res.ok) {
+        const json = await res.json();
+        const records = json.data || [];
+        if (records.length > 0) {
+          const sow = records[0];
+          setFormData((prev) => ({
+            ...prev,
+            cropName: sow.cropName,
+          }));
+          const matchingPreset = COMMON_PEST_PRESETS.find((p) =>
+            p.crop.toLowerCase().includes(sow.cropName.toLowerCase().slice(0, 4))
+          );
+          if (matchingPreset) {
+            handlePresetSelect(matchingPreset);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load farm sowing details', e);
+    }
+  }, []);
+
+  const handleOpenModal = () => {
+    const activeFarm = filterFarmId || (farms.length > 0 ? farms[0]._id : '');
+    setFormData((prev) => ({
+      ...prev,
+      farmId: activeFarm,
+    }));
+    if (activeFarm) {
+      loadFarmSowingDetails(activeFarm);
+    }
+    setShowModal(true);
+  };
+
+  const loadData = useCallback(async (fFarmerId?: string, fFarmId?: string) => {
     try {
       setLoading(true);
-      const [detectRes, farmRes] = await Promise.all([
-        fetch('/api/pest-detection'),
+      const params = new URLSearchParams();
+      const targetFarmer = fFarmerId !== undefined ? fFarmerId : filterFarmerId;
+      const targetFarm = fFarmId !== undefined ? fFarmId : filterFarmId;
+      if (targetFarmer) params.append('farmerId', targetFarmer);
+      if (targetFarm) params.append('farmId', targetFarm);
+      const url = `/api/pest-detection${params.toString() ? `?${params.toString()}` : ''}`;
+
+      const [detectRes, farmRes, farmerRes] = await Promise.all([
+        fetch(url),
         fetch('/api/farms'),
+        fetch('/api/farmers'),
       ]);
 
       if (detectRes.ok) {
@@ -138,20 +198,21 @@ export default function PestDetectionPage() {
       if (farmRes.ok) {
         const json = await farmRes.json();
         setFarms(json.data || []);
-        if (json.data?.length > 0 && !formData.farmId) {
-          setFormData((prev) => ({ ...prev, farmId: json.data[0]._id }));
-        }
+      }
+      if (farmerRes.ok) {
+        const json = await farmerRes.json();
+        setFarmers(json.data || []);
       }
     } catch (err) {
       console.error('Error loading pest detection data:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [filterFarmerId, filterFarmId]);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    loadData(filterFarmerId, filterFarmId);
+  }, [filterFarmerId, filterFarmId, loadData]);
 
   const handlePresetSelect = (preset: (typeof COMMON_PEST_PRESETS)[0]) => {
     setFormData((prev) => ({
@@ -182,11 +243,12 @@ export default function PestDetectionPage() {
 
     try {
       setSubmitting(true);
+      const fOwnerId = typeof selectedFarm.farmerId === 'object' ? selectedFarm.farmerId?._id : selectedFarm.farmerId;
       const res = await fetch('/api/pest-detection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          farmerId: selectedFarm.farmerId?._id || selectedFarm.farmerId,
+          farmerId: fOwnerId,
           farmId: formData.farmId,
           cropName: formData.cropName,
           pestDiseaseName: formData.pestDiseaseName,
@@ -240,17 +302,21 @@ export default function PestDetectionPage() {
   };
 
   const filtered = detections.filter((d) => {
+    const fId = typeof d.farmerId === 'object' ? d.farmerId?._id : d.farmerId;
+    const fmId = typeof d.farmId === 'object' ? d.farmId?._id : d.farmId;
+    if (filterFarmerId && fId !== filterFarmerId) return false;
+    if (filterFarmId && fmId !== filterFarmId) return false;
     if (statusFilter !== 'all' && d.status !== statusFilter) return false;
     if (categoryFilter !== 'all' && d.detectedCategory !== categoryFilter) return false;
     return true;
   });
 
-  const activeCount = detections.filter((d) => d.status === 'active').length;
-  const criticalCount = detections.filter((d) => d.severityLevel === 'critical' && d.status !== 'resolved').length;
-  const avgConfidence = detections.length
-    ? Math.round(detections.reduce((acc, c) => acc + (c.confidenceScorePercent || 0), 0) / detections.length)
+  const activeCount = filtered.filter((d) => d.status === 'active').length;
+  const criticalCount = filtered.filter((d) => d.severityLevel === 'critical' && d.status !== 'resolved').length;
+  const avgConfidence = filtered.length
+    ? Math.round(filtered.reduce((acc, c) => acc + (c.confidenceScorePercent || 0), 0) / filtered.length)
     : 92;
-  const resolvedCount = detections.filter((d) => d.status === 'resolved').length;
+  const resolvedCount = filtered.filter((d) => d.status === 'resolved').length;
 
   return (
     <div className="space-y-6 sm:space-y-8">
@@ -258,15 +324,12 @@ export default function PestDetectionPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span className="px-2.5 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider bg-[#E7EFE6] dark:bg-[#1e3826] text-[#245C3A] dark:text-[#8ee0a8] border border-[#CFDEC9] dark:border-[#2d5c3a]">
-              Module 13 &bull; Phase 5
-            </span>
             <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-400">
-              <Sparkles className="h-3.5 w-3.5" /> AI Vision & Symptom Diagnostics
+              <Sparkles className="h-3.5 w-3.5" /> AI Vision &amp; Symptom Diagnostics
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-stone-900 dark:text-white">
-            Pest & Disease Detection Engine
+            Pest &amp; Disease Detection Engine
           </h1>
           <p className="text-sm text-stone-600 dark:text-[#a0b5a3] mt-1 max-w-2xl">
             Identify leaf blights, fungal infections, insect infestations, and ETL economic threshold breaches with computer vision and ICAR taxonomic keys.
@@ -279,10 +342,10 @@ export default function PestDetectionPage() {
             className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold border border-[#245C3A]/30 text-[#245C3A] dark:text-emerald-400 hover:bg-[#E7EFE6] dark:hover:bg-[#193D2A] transition-colors"
           >
             <ShieldCheck className="h-4 w-4" />
-            Module 14: IPM Protection
+            IPM Crop Protection
           </Link>
           <button
-            onClick={() => setShowModal(true)}
+            onClick={handleOpenModal}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-[#245C3A] hover:bg-[#193D2A] dark:bg-[#245C3A] dark:hover:bg-[#1e4e31] shadow-xs transition-colors cursor-pointer"
           >
             <Plus className="h-4 w-4" />
@@ -290,6 +353,39 @@ export default function PestDetectionPage() {
           </button>
         </div>
       </div>
+
+      {/* Unified In-Season Navigation & Filter Bar */}
+      <CropCareNav
+        currentTab="pest"
+        farmers={farmers}
+        farms={farms}
+        filterFarmerId={filterFarmerId}
+        filterFarmId={filterFarmId}
+        onFarmerChange={(id) => {
+          setFilterFarmerId(id);
+        }}
+        onFarmChange={(id) => setFilterFarmId(id)}
+        onResetFilter={() => {
+          setFilterFarmerId('');
+          setFilterFarmId('');
+        }}
+        recordCount={filtered.length}
+        recordLabel="diagnostic logs"
+        onActiveCropDetected={(ctx) => {
+          setActiveCropInfo(ctx);
+          setFormData((prev) => ({
+            ...prev,
+            farmId: ctx.farmId || prev.farmId,
+            cropName: ctx.cropName || prev.cropName,
+          }));
+          const matchingPreset = COMMON_PEST_PRESETS.find((p) =>
+            p.crop.toLowerCase().includes(ctx.cropName.toLowerCase().slice(0, 4))
+          );
+          if (matchingPreset) {
+            handlePresetSelect(matchingPreset);
+          }
+        }}
+      />
 
       {/* Metric Cards Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -509,10 +605,19 @@ export default function PestDetectionPage() {
                   </div>
 
                   <Link
-                    href={`/crop-protection?detectionId=${item._id}`}
-                    className="inline-flex items-center justify-center gap-1.5 w-full py-2 rounded-xl text-xs font-semibold bg-[#E7EFE6] dark:bg-[#193D2A] text-[#245C3A] dark:text-emerald-400 hover:bg-[#CFDEC9] dark:hover:bg-[#245C3A] transition-colors"
+                    href={`/crop-protection?farmerId=${filterFarmerId || (typeof item.farmerId === 'object' ? item.farmerId?._id : item.farmerId) || ''}&farmId=${filterFarmId || (typeof item.farmId === 'object' ? item.farmId?._id : item.farmId) || ''}&detectionId=${item._id}&pestName=${encodeURIComponent(item.pestDiseaseName || '')}`}
+                    className="inline-flex items-center justify-center gap-1.5 w-full py-2 rounded-xl text-xs font-semibold bg-[#245C3A] hover:bg-[#193D2A] text-white shadow-xs transition-colors"
                   >
-                    Generate IPM Advisory <ArrowRight className="h-3.5 w-3.5" />
+                    <span>Formulate IPM Plan</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+
+                  <Link
+                    href={`/weather?farmerId=${filterFarmerId || (typeof item.farmerId === 'object' ? item.farmerId?._id : item.farmerId) || ''}&farmId=${filterFarmId || (typeof item.farmId === 'object' ? item.farmId?._id : item.farmId) || ''}`}
+                    className="inline-flex items-center justify-center gap-1.5 w-full py-1.5 rounded-xl text-[11px] font-medium border border-[#245C3A]/20 text-[#245C3A] dark:text-emerald-400 hover:bg-[#E7EFE6] dark:hover:bg-[#193D2A] transition-colors"
+                  >
+                    <CloudSun className="h-3.5 w-3.5" />
+                    <span>Check Safe Spray Window</span>
                   </Link>
                 </div>
               </div>
@@ -520,6 +625,28 @@ export default function PestDetectionPage() {
           })}
         </div>
       )}
+
+      {/* Workflow Next Step Banner */}
+      <div className="bg-gradient-to-r from-[#245C3A]/10 via-[#245C3A]/5 to-transparent dark:from-[#245C3A]/20 p-4 rounded-xl border border-[#245C3A]/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h3 className="text-xs font-bold text-[#245C3A] dark:text-emerald-300 uppercase tracking-wider">
+            In-Season Workflow • Step 5 of 6
+          </h3>
+          <p className="text-sm font-semibold text-stone-800 dark:text-stone-100 mt-0.5">
+            Crop Protection &amp; Integrated Pest Management (IPM)
+          </p>
+          <p className="text-xs text-stone-600 dark:text-stone-400">
+            Formulate biological, mechanical, and CIBRC chemical control protocols with safe pre-harvest intervals (PHI).
+          </p>
+        </div>
+        <Link
+          href={`/crop-protection?farmerId=${filterFarmerId || ''}&farmId=${filterFarmId || ''}`}
+          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-[#245C3A] hover:bg-[#193D2A] text-white shadow-xs transition shrink-0"
+        >
+          <span>Next: Crop Protection (IPM)</span>
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      </div>
 
       {/* Diagnosis Modal */}
       {showModal && (
@@ -566,6 +693,15 @@ export default function PestDetectionPage() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              {activeCropInfo && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-[11px] text-emerald-800 dark:text-emerald-300">
+                  <Sparkles className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                  <span>
+                    Auto-calibrated for Active Cultivation: <strong>{activeCropInfo.cropName} ({activeCropInfo.varietyName})</strong> — {activeCropInfo.stageName} (DAS {activeCropInfo.daysAfterSowing})
+                  </span>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold mb-1 text-stone-700 dark:text-stone-300">
@@ -573,14 +709,20 @@ export default function PestDetectionPage() {
                   </label>
                   <select
                     value={formData.farmId}
-                    onChange={(e) => setFormData({ ...formData, farmId: e.target.value })}
+                    onChange={(e) => {
+                      const newFarmId = e.target.value;
+                      setFormData({ ...formData, farmId: newFarmId });
+                      if (newFarmId) {
+                        loadFarmSowingDetails(newFarmId);
+                      }
+                    }}
                     required
                     className="w-full px-3 py-2 text-xs rounded-xl border border-stone-200 dark:border-[#245C3A]/40 bg-stone-50 dark:bg-[#121c14] text-stone-900 dark:text-white outline-none"
                   >
                     <option value="">Select a farm parcel</option>
                     {farms.map((f) => (
                       <option key={f._id} value={f._id}>
-                        {f.parcelName} ({f.farmerId?.name || 'Farmer'})
+                        {f.parcelName} ({typeof f.farmerId === 'object' && f.farmerId?.name ? f.farmerId.name : 'Farmer'})
                       </option>
                     ))}
                   </select>

@@ -2,8 +2,21 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { Sparkles, Sprout, TrendingUp, CheckCircle2, AlertCircle, ArrowRight, Filter } from 'lucide-react';
+import {
+  Sparkles,
+  Sprout,
+  TrendingUp,
+  CheckCircle2,
+  AlertCircle,
+  ArrowRight,
+  Filter,
+  Package,
+  ShieldCheck,
+  Lock,
+  Unlock,
+} from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { INDIAN_SEEDS_CATALOG } from '@/data/seed-catalog';
 
 interface PlanItem {
   _id: string;
@@ -41,6 +54,37 @@ interface FarmOption {
   farmerId: string | { _id: string };
   totalAreaAcres: number;
   soilType: string;
+}
+
+function getSeedMetaForCrop(cropName: string) {
+  const norm = cropName.toLowerCase();
+  const matched = INDIAN_SEEDS_CATALOG.find(
+    (s) => norm.includes(s.cropName.toLowerCase()) || s.cropName.toLowerCase().includes(norm)
+  );
+
+  if (!matched) {
+    return {
+      varietyName: 'Certified Hybrid / High Yielding',
+      seedCategory: 'Certified',
+      stockAvailable: '150 kg (In Stock)',
+    };
+  }
+
+  let stockText = '450 kg (In Stock)';
+  if (matched.category === 'commercial' && matched.cropName.toLowerCase().includes('sugarcane')) {
+    stockText = '32,000 Setts (In Stock)';
+  } else if (matched.seedRateKgNumber < 1) {
+    stockText = '45 kg (In Stock)';
+  } else {
+    stockText = `${Math.round(matched.seedRateKgNumber * 25)} kg (In Stock)`;
+  }
+
+  return {
+    varietyName: matched.varietyName,
+    seedCategory:
+      matched.seedCategory.charAt(0).toUpperCase() + matched.seedCategory.slice(1),
+    stockAvailable: stockText,
+  };
 }
 
 export default function CropSuitabilityPage() {
@@ -135,21 +179,44 @@ export default function CropSuitabilityPage() {
     }
   };
 
+  const [unlockedPlanIds, setUnlockedPlanIds] = useState<string[]>([]);
+
   const activePlan = plans.find((p) => p._id === activePlanId) || plans[0];
+  const currentSelectedCrop =
+    activePlan?.selectedCrop || activePlan?.recommendations?.[0]?.cropName || '';
+
+  const isLocked = Boolean(activePlan?.selectedCrop) && !unlockedPlanIds.includes(activePlan?._id || '');
+
+  const handleSelectCrop = async (cropName: string) => {
+    if (!activePlan) return;
+    setPlans((prev) =>
+      prev.map((p) => (p._id === activePlan._id ? { ...p, selectedCrop: cropName } : p))
+    );
+    // Lock selection for this plan
+    setUnlockedPlanIds((prev) => prev.filter((id) => id !== activePlan._id));
+
+    try {
+      await fetch('/api/crop-recommendations', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          planId: activePlan._id,
+          selectedCrop: cropName,
+        }),
+      });
+    } catch (err) {
+      console.error('Failed to update selected crop in DB', err);
+    }
+  };
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#245C3A]/10">
         <div>
-          <div className="flex items-center gap-2.5 mb-1">
-            <span className="px-2 py-0.5 rounded text-[11px] font-bold tracking-wider uppercase bg-[#245C3A]/10 text-[#245C3A] border border-[#245C3A]/20">
-              Module 6
-            </span>
-            <h1 className="text-2xl font-bold tracking-tight text-[#193D2A] dark:text-[#E8F0E9]">
-              Crop Suitability & Recommendation Engine
-            </h1>
-          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-[#193D2A] dark:text-[#E8F0E9] mb-1">
+            Crop Suitability & Recommendation Engine
+          </h1>
           <p className="text-sm text-stone-600 dark:text-stone-400">
             Multi-variable agro-climatic matching ranking crops by soil chemistry, seasonal water access, and APMC gross margin returns.
           </p>
@@ -279,13 +346,13 @@ export default function CropSuitabilityPage() {
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Left Plans List */}
-          <div className="lg:col-span-4 space-y-2">
+          <div className="lg:col-span-4 lg:sticky lg:top-4 space-y-2">
             <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-2">
               Generated Recommendations ({plans.length})
             </h3>
-            <div className="space-y-2 max-h-[700px] overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-[calc(100vh-140px)] overflow-y-auto pr-1">
               {plans.map((p) => {
                 const isSelected = p._id === activePlan?._id;
                 return (
@@ -309,8 +376,12 @@ export default function CropSuitabilityPage() {
                     <div className="text-sm font-bold text-stone-800 dark:text-stone-100">
                       {p.farmerId?.name}
                     </div>
-                    <div className="text-xs text-stone-500">
-                      {p.farmId?.parcelName} ({p.farmId?.soilType})
+                    <div className="flex items-center justify-between text-xs text-stone-500 mt-1">
+                      <span>{p.farmId?.parcelName} ({p.farmId?.soilType})</span>
+                      <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                        {p.selectedCrop && <Lock className="w-2.5 h-2.5 text-emerald-600" />}
+                        {p.selectedCrop ? p.selectedCrop.split(' ')[0] : p.recommendations?.[0]?.cropName?.split(' ')[0]}
+                      </span>
                     </div>
                   </button>
                 );
@@ -324,10 +395,24 @@ export default function CropSuitabilityPage() {
               {/* Active Plan Meta */}
               <div className="p-6 bg-white dark:bg-[#1a231d] rounded-2xl border border-[#245C3A]/10 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
-                  <span className="text-xs font-bold text-[#245C3A] uppercase tracking-wider">
-                    {activePlan.targetSeason.toUpperCase()} {activePlan.targetYear} • Plan #{activePlan._id.slice(-6)}
-                  </span>
-                  <h2 className="text-xl font-bold text-[#193D2A] dark:text-[#E8F0E9] mt-0.5">
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                    <span className="text-xs font-bold text-[#245C3A] uppercase tracking-wider">
+                      {activePlan.targetSeason.toUpperCase()} {activePlan.targetYear} • Plan #{activePlan._id.slice(-6)}
+                    </span>
+                    <span className="text-xs text-stone-400">•</span>
+                    {isLocked ? (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 shadow-xs">
+                        <Lock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        Selected & Locked: <strong>{currentSelectedCrop}</strong>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                        <Unlock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                        Editing Unlocked
+                      </span>
+                    )}
+                  </div>
+                  <h2 className="text-xl font-bold text-[#193D2A] dark:text-[#E8F0E9]">
                     {activePlan.farmerId?.name} — {activePlan.farmId?.parcelName}
                   </h2>
                   <p className="text-xs text-stone-500 mt-1">
@@ -335,33 +420,95 @@ export default function CropSuitabilityPage() {
                   </p>
                 </div>
 
-                <Link
-                  href={`/seed-selection?cropName=${encodeURIComponent(activePlan.recommendations[0]?.cropName || '')}`}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#245C3A] hover:bg-[#193D2A] text-white text-xs font-semibold shadow transition"
-                >
-                  Proceed to Seed Advisory (Module 7)
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </Link>
+                <div className="flex items-center gap-2 shrink-0">
+                  {isLocked ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (
+                          confirm(
+                            `Are you sure you want to unlock crop selection for ${activePlan.farmId?.parcelName}? You will be able to change the crop.`
+                          )
+                        ) {
+                          setUnlockedPlanIds((prev) => [...prev, activePlan._id]);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white hover:bg-stone-100 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 text-xs font-semibold shadow-xs transition cursor-pointer"
+                      title="Unlock to edit crop selection"
+                    >
+                      <Unlock className="w-3.5 h-3.5 text-stone-500" />
+                      <span>Unlock Edit</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUnlockedPlanIds((prev) => prev.filter((id) => id !== activePlan._id));
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 text-xs font-semibold shadow-xs transition cursor-pointer"
+                    >
+                      <Lock className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Lock Selection</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await handleSelectCrop(currentSelectedCrop);
+                      router.push(
+                        `/land-prep?farmerId=${activePlan.farmerId?._id}&farmId=${activePlan.farmId?._id}&cropName=${encodeURIComponent(currentSelectedCrop)}`
+                      );
+                    }}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#245C3A] hover:bg-[#193D2A] text-white text-xs font-bold shadow-sm transition shrink-0 cursor-pointer"
+                  >
+                    <span>Proceed to Land Preparation ({currentSelectedCrop.split(' ')[0]})</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
 
               {/* Crop Cards Ranked List */}
               <div className="space-y-4">
                 {activePlan.recommendations.map((crop, idx) => {
                   const isTop = idx === 0;
+                  const isSelectedCrop = currentSelectedCrop === crop.cropName;
+                  const seedMeta = getSeedMetaForCrop(crop.cropName);
+                  const isCardDisabled = isLocked && !isSelectedCrop;
+
                   return (
                     <div
                       key={idx}
-                      className={`p-6 rounded-2xl border transition bg-white dark:bg-[#1a231d] ${
-                        isTop
-                          ? 'border-2 border-[#245C3A] shadow-md ring-1 ring-[#245C3A]/20'
-                          : 'border-stone-200 dark:border-stone-800'
+                      role={isCardDisabled ? undefined : 'button'}
+                      tabIndex={isCardDisabled ? -1 : 0}
+                      onClick={() => {
+                        if (isCardDisabled) return;
+                        handleSelectCrop(crop.cropName);
+                      }}
+                      onKeyDown={(e) => {
+                        if (isCardDisabled) return;
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleSelectCrop(crop.cropName);
+                        }
+                      }}
+                      className={`p-6 rounded-2xl border transition-all select-none group ${
+                        isSelectedCrop
+                          ? 'border-2 border-emerald-600 dark:border-emerald-500 shadow-md ring-2 ring-emerald-500/20 bg-emerald-50/20 dark:bg-emerald-950/25'
+                          : isCardDisabled
+                          ? 'border-stone-200/60 dark:border-stone-800/60 bg-stone-50/50 dark:bg-stone-900/50 opacity-50 cursor-not-allowed'
+                          : isTop
+                          ? 'border-2 border-[#245C3A]/40 bg-white dark:bg-[#1a231d] hover:border-emerald-600 hover:shadow-md hover:bg-stone-50/40 dark:hover:bg-stone-900/40 cursor-pointer'
+                          : 'border-stone-200 dark:border-stone-800 bg-white dark:bg-[#1a231d] hover:border-emerald-500/70 hover:shadow-md hover:bg-stone-50/40 dark:hover:bg-stone-900/40 cursor-pointer'
                       }`}
                     >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-stone-100 dark:border-stone-800">
                         <div className="flex items-center gap-3">
                           <span
                             className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
-                              isTop
+                              isSelectedCrop
+                                ? 'bg-emerald-600 text-white shadow-xs'
+                                : isTop
                                 ? 'bg-[#245C3A] text-white'
                                 : 'bg-stone-100 dark:bg-stone-800 text-stone-600'
                             }`}
@@ -369,27 +516,57 @@ export default function CropSuitabilityPage() {
                             #{idx + 1}
                           </span>
                           <div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                               <h3 className="text-base font-bold text-stone-900 dark:text-stone-100">
                                 {crop.cropName}
                               </h3>
-                              {isTop && (
-                                <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-emerald-500 text-white">
-                                  Top Recommendation
+                              {isSelectedCrop && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold uppercase tracking-wider bg-emerald-600 text-white shadow-xs">
+                                  <Lock className="w-3 h-3" /> Confirmed For Cultivation
+                                </span>
+                              )}
+                              {isCardDisabled && (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-stone-200/80 dark:bg-stone-800 text-stone-500 inline-flex items-center gap-1">
+                                  <Lock className="w-2.5 h-2.5 text-stone-400" /> Locked
+                                </span>
+                              )}
+                              {isTop && !isSelectedCrop && !isCardDisabled && (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-stone-200 dark:bg-stone-700 text-stone-700 dark:text-stone-300">
+                                  #1 Agronomic Rank
                                 </span>
                               )}
                             </div>
-                            {crop.botanicalName && (
-                              <span className="text-xs italic text-stone-500 font-serif">
-                                {crop.botanicalName}
+                            <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                              {crop.botanicalName && (
+                                <span className="text-xs italic text-stone-500 font-serif">
+                                  {crop.botanicalName}
+                                </span>
+                              )}
+                              <span className="text-[11px] text-stone-400">•</span>
+                              <span className="text-[11px] text-[#245C3A] dark:text-[#6ee7b7] font-medium">
+                                Variety: {seedMeta.varietyName}
                               </span>
-                            )}
+                            </div>
                           </div>
                         </div>
 
-                        {/* Suitability Badge */}
+                        {/* Suitability Badge & Active Indicator */}
                         <div className="flex items-center gap-3">
-                          <div className="text-right">
+                          {isSelectedCrop ? (
+                            <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1 bg-emerald-100/70 dark:bg-emerald-950/70 px-2.5 py-1 rounded-lg border border-emerald-500/30">
+                              <CheckCircle2 className="w-4 h-4" /> Active Choice
+                            </span>
+                          ) : isCardDisabled ? (
+                            <span className="text-xs text-stone-400 flex items-center gap-1 font-medium">
+                              <Lock className="w-3.5 h-3.5 text-stone-400" /> Locked
+                            </span>
+                          ) : (
+                            <span className="text-xs text-stone-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition font-medium">
+                              Click card to select
+                            </span>
+                          )}
+
+                          <div className="text-right pl-2 border-l border-stone-200 dark:border-stone-800">
                             <span className="text-2xl font-black text-[#193D2A] dark:text-[#E8F0E9]">
                               {crop.suitabilityScore}
                               <span className="text-sm font-normal text-stone-400">/100</span>
@@ -401,8 +578,8 @@ export default function CropSuitabilityPage() {
                         </div>
                       </div>
 
-                      {/* Economics & Yield Metrics */}
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 py-4 border-b border-stone-100 dark:border-stone-800 text-xs">
+                      {/* Economics, Yield & Seed Inventory Metrics */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 py-4 border-b border-stone-100 dark:border-stone-800 text-xs">
                         <div>
                           <span className="text-stone-500 block text-[11px]">Expected Yield / Acre</span>
                           <span className="font-bold text-stone-800 dark:text-stone-200 font-mono">
@@ -419,6 +596,20 @@ export default function CropSuitabilityPage() {
                           <span className="text-stone-500 block text-[11px]">Water Requirement</span>
                           <span className="font-semibold text-stone-700 dark:text-stone-300 capitalize">
                             {crop.waterRequirementLevel} Requirement
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-stone-500 block text-[11px]">Seed Category</span>
+                          <span className="inline-flex items-center gap-1 font-bold text-blue-700 dark:text-blue-400">
+                            <ShieldCheck className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                            {seedMeta.seedCategory}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-stone-500 block text-[11px]">Stock</span>
+                          <span className="inline-flex items-center gap-1 font-bold text-emerald-700 dark:text-emerald-400">
+                            <Package className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+                            {seedMeta.stockAvailable}
                           </span>
                         </div>
                       </div>
@@ -454,6 +645,69 @@ export default function CropSuitabilityPage() {
                             </ul>
                           </div>
                         )}
+                      </div>
+
+                      {/* Bottom Action Footer */}
+                      <div className="mt-4 pt-3 border-t border-stone-100 dark:border-stone-800 flex flex-wrap items-center justify-between gap-3">
+                        <div className="text-xs">
+                          {isSelectedCrop ? (
+                            <span className="font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                              <Lock className="w-4 h-4 flex-shrink-0 text-emerald-600" />
+                              Confirmed & locked for cultivation on this parcel.
+                            </span>
+                          ) : isCardDisabled ? (
+                            <span className="text-stone-400 dark:text-stone-500 flex items-center gap-1.5">
+                              <Lock className="w-3.5 h-3.5 flex-shrink-0" />
+                              Selection locked. Cultivation confirmed for {currentSelectedCrop.split(' ')[0]}.
+                            </span>
+                          ) : (
+                            <span className="text-stone-500 group-hover:text-stone-700 dark:group-hover:text-stone-300 transition">
+                              Click card to select {crop.cropName.split(' ')[0]} for this field.
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {isSelectedCrop ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                router.push(
+                                  `/land-prep?farmerId=${activePlan.farmerId?._id}&farmId=${activePlan.farmId?._id}&cropName=${encodeURIComponent(crop.cropName)}`
+                                );
+                              }}
+                              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold shadow-xs transition cursor-pointer bg-[#245C3A] hover:bg-[#193D2A] text-white"
+                            >
+                              <span>Proceed to Land Preparation</span>
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </button>
+                          ) : isCardDisabled ? (
+                            <button
+                              type="button"
+                              disabled
+                              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-stone-100 dark:bg-stone-800 text-stone-400 dark:text-stone-500 border border-stone-200 dark:border-stone-800 cursor-not-allowed opacity-80"
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                              <span>Locked</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                await handleSelectCrop(crop.cropName);
+                                router.push(
+                                  `/land-prep?farmerId=${activePlan.farmerId?._id}&farmId=${activePlan.farmId?._id}&cropName=${encodeURIComponent(crop.cropName)}`
+                                );
+                              }}
+                              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold shadow-xs transition cursor-pointer bg-[#245C3A] hover:bg-[#193D2A] text-white"
+                            >
+                              <span>Select & Prepare Land ({crop.cropName.split(' ')[0]})</span>
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );

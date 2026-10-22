@@ -90,47 +90,65 @@ export class AuthService {
     let googleId = '';
     let avatarUrl: string | undefined = undefined;
 
+    // Helper to decode JWT payload safely (handles base64url and standard base64)
+    const extractJwtPayload = (jwt: string): Record<string, unknown> | null => {
+      try {
+        const parts = jwt.split('.');
+        if (parts.length >= 2) {
+          const raw = Buffer.from(parts[1], 'base64url').toString('utf-8');
+          return JSON.parse(raw);
+        }
+      } catch {
+        try {
+          const parts = jwt.split('.');
+          const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          const raw = Buffer.from(base64, 'base64').toString('utf-8');
+          return JSON.parse(raw);
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    };
+
     // 1. If explicit userInfo is provided from client-side Google SDK
     if (input.userInfo) {
-      email = input.userInfo.email;
-      name = input.userInfo.name;
-      googleId = input.userInfo.sub;
+      email = input.userInfo.email || '';
+      name = input.userInfo.name || '';
+      googleId = input.userInfo.sub || '';
       avatarUrl = input.userInfo.picture;
-    } else if (input.credential) {
-      // 1. Verify token with Google's tokeninfo endpoint
+    }
+
+    // 2. Decode JWT id_token (fast, reliable, extracts real name, email, picture)
+    if ((!email || !name || !googleId) && input.credential) {
+      const payload = extractJwtPayload(input.credential);
+      if (payload) {
+        email = email || String(payload.email || '');
+        const fullName =
+          payload.name ||
+          `${payload.given_name || ''} ${payload.family_name || ''}`.trim() ||
+          (email ? email.split('@')[0] : '');
+        name = name || String(fullName || '');
+        googleId = googleId || String(payload.sub || '');
+        avatarUrl = avatarUrl || (payload.picture ? String(payload.picture) : undefined);
+      }
+    }
+
+    // 3. Fallback: Google tokeninfo verification endpoint
+    if ((!email || !googleId) && input.credential) {
       try {
         const verifyRes = await fetch(
           `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(input.credential)}`
         );
         if (verifyRes.ok) {
           const googleData = await verifyRes.json();
-          email = googleData.email;
-          name = googleData.name || googleData.given_name || email.split('@')[0];
-          googleId = googleData.sub;
-          avatarUrl = googleData.picture;
-        } else {
-          // Fallback to base64 decoding
-          const parts = input.credential.split('.');
-          if (parts.length === 3) {
-            const payloadJson = Buffer.from(parts[1], 'base64').toString('utf-8');
-            const payload = JSON.parse(payloadJson);
-            email = payload.email;
-            name = payload.name;
-            googleId = payload.sub;
-            avatarUrl = payload.picture;
-          }
+          email = email || googleData.email || '';
+          name = name || googleData.name || googleData.given_name || (email ? email.split('@')[0] : '');
+          googleId = googleId || googleData.sub || '';
+          avatarUrl = avatarUrl || googleData.picture;
         }
-      } catch {
-        // Fallback to base64 decoding
-        const parts = input.credential.split('.');
-        if (parts.length === 3) {
-          const payloadJson = Buffer.from(parts[1], 'base64').toString('utf-8');
-          const payload = JSON.parse(payloadJson);
-          email = payload.email;
-          name = payload.name;
-          googleId = payload.sub;
-          avatarUrl = payload.picture;
-        }
+      } catch (e) {
+        console.warn('Google tokeninfo verification failed:', e);
       }
     }
 
@@ -138,7 +156,7 @@ export class AuthService {
       throw new Error('Missing Google profile information (email or Google user ID)');
     }
 
-    // 2. Check if user already exists by googleId or by email
+    // 4. Check if user already exists by googleId or by email
     let user = await this.userRepo.findByGoogleId(googleId);
 
     if (!user) {
@@ -146,14 +164,23 @@ export class AuthService {
       if (user) {
         // Link Google ID to existing email account
         user.googleId = googleId;
+        if (name && (!user.name || user.name === 'Farmer' || user.name === 'Farmer User')) {
+          user.name = name;
+        }
         if (avatarUrl && !user.avatarUrl) {
           user.avatarUrl = avatarUrl;
         }
         await user.save();
       } else {
-        // Create new user via Google Sign-In
+        // Check authentication mode: if user is attempting to login without registering first, reject
+        const mode = input.mode || 'login';
+        if (mode === 'login') {
+          throw new Error('No registered account found with this Google email. Please register first before logging in.');
+        }
+
+        // Create new user via Google Sign-In only when explicitly in registration mode
         user = await this.userRepo.create({
-          name: name || 'Farmer',
+          name: name || email.split('@')[0] || 'Farmer',
           email: email.toLowerCase().trim(),
           authProvider: 'google',
           googleId,
@@ -161,6 +188,20 @@ export class AuthService {
           role: 'farmer',
           preferredLanguage: 'ta',
         });
+      }
+    } else {
+      // User found by googleId: refresh name and avatar if needed
+      let changed = false;
+      if (name && (!user.name || user.name === 'Farmer' || user.name === 'Farmer User')) {
+        user.name = name;
+        changed = true;
+      }
+      if (avatarUrl && !user.avatarUrl) {
+        user.avatarUrl = avatarUrl;
+        changed = true;
+      }
+      if (changed) {
+        await user.save();
       }
     }
 

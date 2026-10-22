@@ -18,9 +18,21 @@ export async function GET(request: NextRequest) {
       return ApiResponseHelper.error('Invalid or expired session', 401, 'INVALID_SESSION');
     }
 
-    const user = await authService.getCurrentUser(payload.userId);
+    let user = await authService.getCurrentUser(payload.userId);
     if (!user) {
-      return ApiResponseHelper.error('User not found', 404, 'USER_NOT_FOUND');
+      if (payload.email) {
+        user = {
+          id: payload.userId,
+          name: payload.name || payload.email.split('@')[0],
+          email: payload.email,
+          role: payload.role || 'farmer',
+          authProvider: payload.authProvider || 'google',
+          preferredLanguage: 'ta',
+          createdAt: new Date(),
+        };
+      } else {
+        return ApiResponseHelper.error('User not found', 404, 'USER_NOT_FOUND');
+      }
     }
 
     return ApiResponseHelper.success(user, 'Session active');

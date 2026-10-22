@@ -3,12 +3,13 @@ import { ApiResponseHelper } from '@/lib/api-response';
 import { farmerRepository } from '@/repositories/farmer.repository';
 import { farmerSchema, validateRequest } from '@/validators';
 import { AuditLogger } from '@/lib/audit-logger';
-import { AUTH_COOKIE_NAME, verifyAuthToken } from '@/lib/auth';
+import { getTenantScope, getAuthenticatedUser } from '@/lib/tenant';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const scope = await getTenantScope(request);
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search') || '';
     const district = searchParams.get('district') || '';
@@ -17,12 +18,29 @@ export async function GET(request: NextRequest) {
     const filter: Record<string, unknown> = {};
     if (district) filter.district = district;
     if (status) filter.status = status;
+
+    if (!scope.isAdmin) {
+      filter.$and = [
+        {
+          $or: [
+            { createdBy: scope.userId },
+            ...(scope.email ? [{ email: scope.email }] : []),
+          ],
+        },
+      ];
+    }
+
     if (search) {
-      filter.$or = [
+      const searchOr = [
         { name: { $regex: search, $options: 'i' } },
         { phone: { $regex: search, $options: 'i' } },
         { farmerCode: { $regex: search, $options: 'i' } },
       ];
+      if (filter.$and) {
+        (filter.$and as Array<unknown>).push({ $or: searchOr });
+      } else {
+        filter.$or = searchOr;
+      }
     }
 
     const farmers = await farmerRepository.find(filter, 0, 100);
@@ -34,8 +52,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const sessionCookie = request.cookies.get(AUTH_COOKIE_NAME)?.value;
-    const session = sessionCookie ? await verifyAuthToken(sessionCookie) : null;
+    const session = await getAuthenticatedUser(request);
 
     const body = await request.json();
     const validation = await validateRequest(farmerSchema, body);

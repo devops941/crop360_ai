@@ -9,6 +9,7 @@ import {
   Plus,
   Calendar,
   AlertTriangle,
+  AlertCircle,
   CheckCircle2,
   TrendingUp,
   MapPin,
@@ -17,10 +18,14 @@ import {
   X,
   Loader2,
   ArrowRight,
+  Droplet,
+  FlaskConical,
+  Bug,
 } from 'lucide-react';
 import { DataTable, Column } from '@/components/common/data-table';
 import { toast } from 'react-toastify';
 import { useSearchParams } from 'next/navigation';
+import { CropCareNav, FarmerOption, FarmOption, calculateCropBiometrics } from '@/components/crop-care/crop-care-nav';
 
 interface CropGrowthRow extends Record<string, unknown> {
   _id: string;
@@ -48,36 +53,36 @@ interface CropGrowthRow extends Record<string, unknown> {
   };
 }
 
-interface FarmerOption {
-  _id: string;
-  name: string;
-  farmerCode: string;
-}
-
-interface FarmOption {
-  _id: string;
-  parcelName: string;
-  farmerId: string | { _id: string };
-  totalAreaAcres: number;
-}
-
 export default function CropGrowthPage() {
   const searchParams = useSearchParams();
-  const preselectedFarmId = searchParams.get('farmId');
+  const queryFarmerId = searchParams.get('farmerId') || '';
+  const queryFarmId = searchParams.get('farmId') || '';
+  const queryCropName = searchParams.get('cropName') || '';
+  const queryOpenModal = searchParams.get('openModal') === 'true';
 
   const [logs, setLogs] = useState<CropGrowthRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [farmers, setFarmers] = useState<FarmerOption[]>([]);
   const [farms, setFarms] = useState<FarmOption[]>([]);
+  const [sowings, setSowings] = useState<any[]>([]);
+
+  // Filter State
+  const [filterFarmerId, setFilterFarmerId] = useState(queryFarmerId);
+  const [filterFarmId, setFilterFarmId] = useState(queryFarmId);
+
+  useEffect(() => {
+    if (queryFarmerId) setFilterFarmerId(queryFarmerId);
+    if (queryFarmId) setFilterFarmId(queryFarmId);
+  }, [queryFarmerId, queryFarmId]);
 
   // Modal State
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   // Form Fields
-  const [farmerId, setFarmerId] = useState('');
-  const [farmId, setFarmId] = useState(preselectedFarmId || '');
-  const [cropName, setCropName] = useState('Paddy (Rice / Kuruvai)');
+  const [farmerId, setFarmerId] = useState(queryFarmerId || '');
+  const [farmId, setFarmId] = useState(queryFarmId || '');
+  const [cropName, setCropName] = useState(queryCropName || 'Paddy (Rice / Kuruvai)');
   const [varietyName, setVarietyName] = useState('CO 51');
   const [observationDate, setObservationDate] = useState(
     new Date().toISOString().split('T')[0]
@@ -89,10 +94,85 @@ export default function CropGrowthPage() {
   const [healthStatus, setHealthStatus] = useState('normal');
   const [remarks, setRemarks] = useState('');
 
-  const fetchLogs = useCallback(async () => {
+  const loadFarmSowingDetails = useCallback(async (selectedFarmId: string) => {
+    if (!selectedFarmId) return;
+    try {
+      const res = await fetch(`/api/sowing?farmId=${selectedFarmId}`);
+      if (res.ok) {
+        const json = await res.json();
+        const records = json.data || [];
+        // Only allow completed sowings ('sown' or 'germination_verified')
+        const completedSow = records.find(
+          (r: any) => r.status === 'sown' || r.status === 'germination_verified'
+        );
+        if (completedSow) {
+          setCropName(completedSow.cropName);
+          setVarietyName(completedSow.varietyName);
+          const biometrics = calculateCropBiometrics(completedSow.sowingDate);
+          setGrowthStage(biometrics.stage);
+          setPlantHeightCm(biometrics.plantHeightCm);
+          setCanopyCoveragePercent(biometrics.canopyCoveragePercent);
+          setTillerCountPerPlant(biometrics.tillerCountPerPlant);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load farm sowing details', e);
+    }
+  }, []);
+
+  // Filter parcels that have completed sowing (sown or germination_verified)
+  const completedSownParcels = React.useMemo(() => {
+    const activeFId = farmerId || filterFarmerId;
+    return sowings.filter((s) => {
+      const sFarmerId = typeof s.farmerId === 'object' ? s.farmerId?._id : s.farmerId;
+      const matchFarmer = !activeFId || String(sFarmerId) === String(activeFId);
+      return matchFarmer && (s.status === 'sown' || s.status === 'germination_verified');
+    });
+  }, [sowings, farmerId, filterFarmerId]);
+
+  const handleOpenModal = () => {
+    const activeFarmer = filterFarmerId || (farmers.length > 0 ? farmers[0]._id : '');
+    setFarmerId(activeFarmer);
+
+    // Pick from sown parcels only
+    const activeSown = sowings.filter((s) => {
+      const sFarmerId = typeof s.farmerId === 'object' ? s.farmerId?._id : s.farmerId;
+      const isBelong = !activeFarmer || String(sFarmerId) === String(activeFarmer);
+      return isBelong && (s.status === 'sown' || s.status === 'germination_verified');
+    });
+
+    const activeFarm =
+      filterFarmId && activeSown.some((s) => String(typeof s.farmId === 'object' ? s.farmId?._id : s.farmId) === String(filterFarmId))
+        ? filterFarmId
+        : activeSown.length > 0
+        ? typeof activeSown[0].farmId === 'object' ? activeSown[0].farmId?._id : activeSown[0].farmId
+        : '';
+
+    setFarmId(activeFarm);
+    if (activeFarm) {
+      loadFarmSowingDetails(activeFarm);
+    }
+    setShowModal(true);
+  };
+
+  // If coming directly from Sowing page with openModal=true, automatically open the modal
+  useEffect(() => {
+    if (queryOpenModal && queryFarmId && queryFarmerId) {
+      setFarmerId(queryFarmerId);
+      setFarmId(queryFarmId);
+      loadFarmSowingDetails(queryFarmId);
+      setShowModal(true);
+    }
+  }, [queryOpenModal, queryFarmId, queryFarmerId, loadFarmSowingDetails]);
+
+  const fetchLogs = useCallback(async (fId = filterFarmerId, fmId = filterFarmId) => {
     try {
       setLoading(true);
-      const res = await fetch('/api/crop-growth');
+      const params = new URLSearchParams();
+      if (fId) params.set('farmerId', fId);
+      if (fmId) params.set('farmId', fmId);
+      const q = params.toString() ? `?${params.toString()}` : '';
+      const res = await fetch(`/api/crop-growth${q}`);
       if (res.ok) {
         const json = await res.json();
         setLogs(json.data || []);
@@ -102,27 +182,50 @@ export default function CropGrowthPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filterFarmerId, filterFarmId]);
 
   const loadLookups = useCallback(async () => {
     try {
-      const [farmersRes, farmsRes] = await Promise.all([
+      const [farmersRes, farmsRes, sowingRes] = await Promise.all([
         fetch('/api/farmers'),
         fetch('/api/farms'),
+        fetch('/api/sowing'),
       ]);
       const fJson = await farmersRes.json();
       const fmJson = await farmsRes.json();
+      const sJson = await sowingRes.json();
       if (fJson.success) setFarmers(fJson.data || []);
       if (fmJson.success) setFarms(fmJson.data || []);
+      if (sJson.success) setSowings(sJson.data || []);
     } catch (e) {
       console.error('Failed to fetch lookups', e);
     }
   }, []);
 
   useEffect(() => {
-    fetchLogs();
     loadLookups();
-  }, [fetchLogs, loadLookups]);
+  }, [loadLookups]);
+
+  useEffect(() => {
+    fetchLogs(filterFarmerId, filterFarmId);
+  }, [filterFarmerId, filterFarmId, fetchLogs]);
+
+  // Sync modal selections when filter changes
+  useEffect(() => {
+    if (filterFarmerId) setFarmerId(filterFarmerId);
+    if (filterFarmId) {
+      setFarmId(filterFarmId);
+      loadFarmSowingDetails(filterFarmId);
+    }
+  }, [filterFarmerId, filterFarmId, loadFarmSowingDetails]);
+
+  const displayedLogs = logs.filter((l) => {
+    const fId = typeof l.farmerId === 'object' ? l.farmerId?._id : l.farmerId;
+    const fmId = typeof l.farmId === 'object' ? l.farmId?._id : l.farmId;
+    if (filterFarmerId && String(fId) !== String(filterFarmerId)) return false;
+    if (filterFarmId && String(fmId) !== String(filterFarmId)) return false;
+    return true;
+  });
 
   const filteredFarms = farms.filter((fm) => {
     if (!farmerId) return true;
@@ -134,6 +237,16 @@ export default function CropGrowthPage() {
     e.preventDefault();
     if (!farmerId || !farmId) {
       toast.warn('Please select both farmer and land parcel');
+      return;
+    }
+
+    const hasSowing = completedSownParcels.some((s) => {
+      const sFarmId = typeof s.farmId === 'object' ? s.farmId?._id : s.farmId;
+      return String(sFarmId) === String(farmId);
+    });
+
+    if (!hasSowing) {
+      toast.warn('Sowing must be completed on this parcel before recording crop growth observations.');
       return;
     }
 
@@ -301,16 +414,53 @@ export default function CropGrowthPage() {
       sortable: true,
       render: (r) => getHealthBadge(r.healthStatus),
     },
+    {
+      key: 'actions',
+      header: 'Care Actions',
+      render: (r) => {
+        const fId = typeof r.farmerId === 'object' ? r.farmerId?._id : r.farmerId;
+        const fmId = typeof r.farmId === 'object' ? r.farmId?._id : r.farmId;
+        const q = `?farmerId=${fId || ''}&farmId=${fmId || ''}&cropName=${encodeURIComponent(r.cropName || '')}`;
+        return (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Link
+              href={`/irrigation${q}`}
+              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 hover:bg-blue-100 transition"
+              title="Schedule irrigation based on growth stage"
+            >
+              <Droplet className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+              <span>Water</span>
+            </Link>
+            <Link
+              href={`/nutrients${q}`}
+              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 hover:bg-amber-100 transition"
+              title="Formulate fertilizer doses for this stage"
+            >
+              <FlaskConical className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span>Fertilizer</span>
+            </Link>
+            <Link
+              href={`/pest-detection${q}`}
+              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 hover:bg-rose-100 transition"
+              title="Inspect pests and disease signs"
+            >
+              <Bug className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
+              <span>Pests</span>
+            </Link>
+          </div>
+        );
+      },
+    },
   ];
 
-  const avgCanopy = logs.length
+  const avgCanopy = displayedLogs.length
     ? Math.round(
-        logs.reduce((acc, l) => acc + (Number(l.canopyCoveragePercent) || 0), 0) /
-          logs.length
+        displayedLogs.reduce((acc, l) => acc + (Number(l.canopyCoveragePercent) || 0), 0) /
+          displayedLogs.length
       )
     : 0;
 
-  const stressedCount = logs.filter(
+  const stressedCount = displayedLogs.filter(
     (l) => l.healthStatus === 'stressed' || l.healthStatus === 'chlorotic' || l.healthStatus === 'diseased'
   ).length;
 
@@ -319,25 +469,17 @@ export default function CropGrowthPage() {
       {/* Header Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#E3E8DF] dark:border-stone-800">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="px-2.5 py-0.5 rounded text-[10px] font-mono font-bold bg-[#E7EFE6] dark:bg-emerald-950/70 text-[#245C3A] dark:text-emerald-400 border border-[#CFDEC9] dark:border-emerald-800">
-              MODULE 10
-            </span>
-            <span className="text-xs text-[#687168] dark:text-stone-400 font-medium">
-              • Phenology &amp; Biometric Vigor
-            </span>
-          </div>
-          <h1 className="text-2xl font-bold text-[#252B26] dark:text-white tracking-tight">
+          <h1 className="text-2xl font-bold text-[#252B26] dark:text-white tracking-tight mb-1">
             Crop Growth &amp; Canopy Monitoring
           </h1>
-          <p className="text-xs text-[#687168] dark:text-[#a0b5a3] mt-0.5">
+          <p className="text-xs text-[#687168] dark:text-[#a0b5a3]">
             Record BBCH phenological milestones, plant height, canopy interception, and stress alerts across active field parcels.
           </p>
         </div>
 
         <button
           type="button"
-          onClick={() => setShowModal(true)}
+          onClick={handleOpenModal}
           className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-lg bg-[#245C3A] hover:bg-[#193D2A] dark:bg-[#2d7348] dark:hover:bg-[#245C3A] text-white shadow-xs transition-colors shrink-0"
         >
           <Plus className="h-4 w-4" />
@@ -345,11 +487,38 @@ export default function CropGrowthPage() {
         </button>
       </div>
 
+      {/* Unified In-Season Navigation & Filter Bar */}
+      <CropCareNav
+        currentTab="growth"
+        farmers={farmers}
+        farms={farms}
+        filterFarmerId={filterFarmerId}
+        filterFarmId={filterFarmId}
+        onFarmerChange={(id) => {
+          setFilterFarmerId(id);
+        }}
+        onFarmChange={(id) => setFilterFarmId(id)}
+        onResetFilter={() => {
+          setFilterFarmerId('');
+          setFilterFarmId('');
+        }}
+        onActiveCropDetected={(ctx) => {
+          setCropName(ctx.cropName);
+          setVarietyName(ctx.varietyName);
+          setGrowthStage(ctx.growthStage);
+          setPlantHeightCm(ctx.plantHeightCm);
+          setCanopyCoveragePercent(ctx.canopyCoveragePercent);
+          setTillerCountPerPlant(ctx.tillerCountPerPlant);
+        }}
+        recordCount={displayedLogs.length}
+        recordLabel="observations"
+      />
+
       {/* 4 Quick Metrics Bar */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="rounded-xl border border-[#E3E8DF] dark:border-[#245C3A]/30 bg-white dark:bg-[#162218] p-4 shadow-xs transition-colors">
           <span className="text-xs text-[#687168] dark:text-[#9bb19f]">Observations Logged</span>
-          <p className="text-2xl font-bold text-[#252B26] dark:text-white mt-1">{logs.length}</p>
+          <p className="text-2xl font-bold text-[#252B26] dark:text-white mt-1">{displayedLogs.length}</p>
           <span className="text-[11px] text-[#245C3A] dark:text-emerald-400 flex items-center gap-1 mt-1 font-medium">
             <CheckCircle2 className="h-3 w-3" />
             <span>Field verified records</span>
@@ -372,7 +541,11 @@ export default function CropGrowthPage() {
         <div className="rounded-xl border border-[#E3E8DF] dark:border-[#245C3A]/30 bg-white dark:bg-[#162218] p-4 shadow-xs transition-colors">
           <span className="text-xs text-[#687168] dark:text-[#9bb19f]">Dominant Active Stage</span>
           <p className="text-xl font-bold text-[#252B26] dark:text-white mt-1 truncate capitalize">
-            {logs[0]?.growthStage ? logs[0].growthStage.replace('_', ' ') : 'Tillering Stage'}
+            {displayedLogs[0]?.growthStage
+              ? displayedLogs[0].growthStage.replace('_', ' ')
+              : displayedLogs.length === 0
+              ? 'No Records'
+              : 'Seedling'}
           </p>
           <span className="text-[11px] text-[#687168] dark:text-[#9bb19f] block mt-1">
             ICAR BBCH Standard
@@ -426,8 +599,20 @@ export default function CropGrowthPage() {
                   <select
                     value={farmerId}
                     onChange={(e) => {
-                      setFarmerId(e.target.value);
-                      setFarmId('');
+                      const newFarmerId = e.target.value;
+                      setFarmerId(newFarmerId);
+                      const matchingSown = sowings.filter((s) => {
+                        const sFarmerId = typeof s.farmerId === 'object' ? s.farmerId?._id : s.farmerId;
+                        const match = !newFarmerId || String(sFarmerId) === String(newFarmerId);
+                        return match && (s.status === 'sown' || s.status === 'germination_verified');
+                      });
+                      if (matchingSown.length > 0) {
+                        const firstFarmId = typeof matchingSown[0].farmId === 'object' ? matchingSown[0].farmId?._id : matchingSown[0].farmId;
+                        setFarmId(firstFarmId);
+                        loadFarmSowingDetails(firstFarmId);
+                      } else {
+                        setFarmId('');
+                      }
                     }}
                     required
                     className="w-full px-3 py-2 text-xs rounded-lg border border-[#E3E8DF] dark:border-stone-700 bg-white dark:bg-stone-800 text-[#252B26] dark:text-stone-100 focus:outline-none focus:border-[#245C3A]"
@@ -443,25 +628,58 @@ export default function CropGrowthPage() {
 
                 <div>
                   <label className="block text-xs font-semibold text-[#252B26] dark:text-stone-200 mb-1">
-                    Select Land Parcel *
+                    Select Land Parcel (Sown & Established) *
                   </label>
                   <select
                     value={farmId}
-                    onChange={(e) => setFarmId(e.target.value)}
+                    onChange={(e) => {
+                      const newFarmId = e.target.value;
+                      setFarmId(newFarmId);
+                      if (newFarmId) {
+                        loadFarmSowingDetails(newFarmId);
+                      }
+                    }}
                     required
-                    disabled={!farmerId}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-[#E3E8DF] dark:border-stone-700 bg-white dark:bg-stone-800 text-[#252B26] dark:text-stone-100 focus:outline-none focus:border-[#245C3A]"
+                    disabled={!farmerId || completedSownParcels.length === 0}
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-[#E3E8DF] dark:border-stone-700 bg-white dark:bg-stone-800 text-[#252B26] dark:text-stone-100 focus:outline-none focus:border-[#245C3A] disabled:opacity-50"
                   >
                     <option value="">
-                      {!farmerId ? '-- Select Farmer First --' : '-- Choose Land Parcel --'}
+                      {!farmerId
+                        ? '-- Select Farmer First --'
+                        : completedSownParcels.length === 0
+                        ? '-- No Sown Parcels Found (Complete Sowing First) --'
+                        : '-- Choose Sown Land Parcel --'}
                     </option>
-                    {filteredFarms.map((fm) => (
-                      <option key={fm._id} value={fm._id}>
-                        {fm.parcelName} ({fm.totalAreaAcres} ac)
-                      </option>
-                    ))}
+                    {completedSownParcels.map((s) => {
+                      const fmId = typeof s.farmId === 'object' ? s.farmId?._id : s.farmId;
+                      const parcelName = typeof s.farmId === 'object' ? s.farmId?.parcelName : 'Parcel';
+                      const area = typeof s.farmId === 'object' ? s.farmId?.totalAreaAcres : undefined;
+                      return (
+                        <option key={s._id} value={fmId}>
+                          {parcelName} {area ? `(${area} ac)` : ''} • {s.cropName} ({s.varietyName}) — {s.status === 'germination_verified' ? 'Germinated' : 'Sown'}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
+
+                {farmerId && completedSownParcels.length === 0 && (
+                  <div className="col-span-1 sm:col-span-2 p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 text-xs text-amber-800 dark:text-amber-300 space-y-1">
+                    <p className="font-bold flex items-center gap-1.5">
+                      <AlertCircle className="w-4 h-4 text-amber-600" />
+                      Sowing Not Completed For This Farmer
+                    </p>
+                    <p className="text-[11px] leading-relaxed">
+                      Crop Growth & Canopy Monitoring requires an established field. Sowing has not been completed or verified yet for this farmer.
+                    </p>
+                    <Link
+                      href={`/sowing?farmerId=${farmerId}`}
+                      className="inline-flex items-center gap-1 font-bold text-[#245C3A] dark:text-emerald-400 hover:underline pt-0.5 text-xs"
+                    >
+                      Go to Sowing & Planting Management →
+                    </Link>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-xs font-semibold text-[#252B26] dark:text-stone-200 mb-1">
@@ -633,12 +851,34 @@ export default function CropGrowthPage() {
 
       {/* Observation Table */}
       <DataTable
-        data={logs}
+        data={displayedLogs}
         columns={columns}
         searchPlaceholder="Search observations by crop, variety, or farmer..."
         searchKey="cropName"
         emptyMessage="No crop growth observations logged yet. Click 'Log Growth Observation' to record your first field biometrics."
       />
+
+      {/* Workflow Next Step Banner */}
+      <div className="bg-gradient-to-r from-[#245C3A]/10 via-[#245C3A]/5 to-transparent dark:from-[#245C3A]/20 p-4 rounded-xl border border-[#245C3A]/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h3 className="text-xs font-bold text-[#245C3A] dark:text-emerald-300 uppercase tracking-wider">
+            In-Season Workflow • Step 2 of 6
+          </h3>
+          <p className="text-sm font-semibold text-stone-800 dark:text-stone-100 mt-0.5">
+            Calibrate water depth &amp; ETc for this stage in Irrigation Management
+          </p>
+          <p className="text-xs text-stone-600 dark:text-stone-400">
+            Proceed with the active farmer &amp; field parcel selection preserved.
+          </p>
+        </div>
+        <Link
+          href={`/irrigation?farmerId=${filterFarmerId || ''}&farmId=${filterFarmId || ''}`}
+          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-[#245C3A] hover:bg-[#193D2A] text-white shadow-xs transition shrink-0"
+        >
+          <span>Next: Irrigation Management</span>
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      </div>
     </div>
   );
 }

@@ -145,16 +145,10 @@ export default function FarmsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#E3E8DF] dark:border-stone-800">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#E7EFE6] dark:bg-emerald-950/70 text-[#245C3A] dark:text-emerald-400">
-              MODULE 2
-            </span>
-            <span className="text-xs text-[#687168] dark:text-stone-400">• Land Registry</span>
-          </div>
-          <h1 className="text-2xl font-bold text-[#252B26] dark:text-white tracking-tight">
+          <h1 className="text-2xl font-bold text-[#252B26] dark:text-white tracking-tight mb-1">
             Farm &amp; Land Management
           </h1>
-          <p className="text-xs text-[#687168] dark:text-[#a0b5a3] mt-0.5">
+          <p className="text-xs text-[#687168] dark:text-[#a0b5a3]">
             Track survey numbers, acreage boundaries, soil classifications, and water resources.
           </p>
         </div>

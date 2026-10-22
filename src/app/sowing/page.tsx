@@ -1,26 +1,28 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
-import { Calendar, Plus, CheckCircle, Clock, MapPin, Layers } from 'lucide-react';
+import {
+  Calendar,
+  Plus,
+  CheckCircle,
+  Clock,
+  ArrowRight,
+  Filter,
+  Trash2,
+  Sparkles,
+  Sprout,
+  ShieldCheck,
+  ChevronDown,
+} from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
+import { SowingGeneratorService, GeneratedSowingSpec } from '@/services/sowing-generator.service';
 
-interface SowingRecordItem {
-  _id: string;
-  farmerId: { _id: string; name: string; farmerCode: string; district: string };
-  farmId: { _id: string; parcelName: string; surveyNumber: string; totalAreaAcres: number };
-  cropName: string;
-  varietyName: string;
-  sowingDate: string;
-  plantingMethod: string;
-  spacingCm: { rowToRowCm: number; plantToPlantCm: number };
-  plantPopulationPerAcre: number;
-  nurseryAgeDays?: number;
-  targetHarvestDateEstimated: string;
-  actualSeedRateUsedKg: number;
-  depthOfSowingCm: number;
-  status: string;
-}
+import {
+  SowingCard,
+  SowingRecordItem,
+  formatPlantingMethod,
+} from '@/components/sowing/sowing-card';
 
 interface FarmerOption {
   _id: string;
@@ -35,29 +37,87 @@ interface FarmOption {
   totalAreaAcres: number;
 }
 
+const COMMON_CROP_PRESETS = [
+  'Sugarcane',
+  'Paddy (Rice)',
+  'Cotton',
+  'Maize',
+  'Groundnut',
+  'Tomato',
+  'Chilli',
+  'Banana',
+  'Turmeric',
+  'Blackgram / Pulses',
+];
+
 export default function SowingPage() {
   const searchParams = useSearchParams();
-  const preselectedFarmId = searchParams.get('farmId');
-  const preselectedCrop = searchParams.get('cropName') || 'Paddy (Rice / Samba / Kuruvai)';
+  const preselectedFarmId = searchParams.get('farmId') || '';
+  const preselectedFarmerId = searchParams.get('farmerId') || '';
+  const preselectedCrop = searchParams.get('cropName') || '';
 
   const [records, setRecords] = useState<SowingRecordItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
 
-  // Form modal
-  const [showModal, setShowModal] = useState(false);
+  // Filter state
+  const [filterFarmerId, setFilterFarmerId] = useState(preselectedFarmerId);
+  const [filterFarmId, setFilterFarmId] = useState(preselectedFarmId);
+
+  // Farmers and farms
   const [farmers, setFarmers] = useState<FarmerOption[]>([]);
   const [farms, setFarms] = useState<FarmOption[]>([]);
-  const [selectedFarmerId, setSelectedFarmerId] = useState('');
-  const [selectedFarmId, setSelectedFarmId] = useState(preselectedFarmId || '');
-  const [cropName, setCropName] = useState(preselectedCrop);
-  const [varietyName, setVarietyName] = useState('CO 51');
-  const [plantingMethod, setPlantingMethod] = useState('transplanting');
-  const [rowToRowCm, setRowToRowCm] = useState(20);
-  const [plantToPlantCm, setPlantToPlantCm] = useState(15);
-  const [nurseryAgeDays, setNurseryAgeDays] = useState(21);
-  const [seedRateKg, setSeedRateKg] = useState(18);
-  const [durationDays, setDurationDays] = useState(115);
+
+  // Form modal state
+  const [showModal, setShowModal] = useState(false);
+  const [selectedFarmerId, setSelectedFarmerId] = useState(preselectedFarmerId);
+  const [selectedFarmId, setSelectedFarmId] = useState(preselectedFarmId);
+  const [cropName, setCropName] = useState(preselectedCrop || 'Sugarcane');
+  const [sowingStatus, setSowingStatus] = useState<'planned' | 'sown'>('sown');
+
+  // Agronomic specs
+  const initialSpec: GeneratedSowingSpec = useMemo(
+    () => SowingGeneratorService.getSpec(preselectedCrop || 'Sugarcane'),
+    [preselectedCrop]
+  );
+
+  const [varietyName, setVarietyName] = useState(initialSpec.varietyName);
+  const [plantingMethod, setPlantingMethod] = useState(initialSpec.plantingMethod);
+  const [rowToRowCm, setRowToRowCm] = useState(initialSpec.spacingCm.rowToRowCm);
+  const [plantToPlantCm, setPlantToPlantCm] = useState(initialSpec.spacingCm.plantToPlantCm);
+  const [nurseryAgeDays, setNurseryAgeDays] = useState(initialSpec.nurseryAgeDays || 0);
+  const [seedRateKg, setSeedRateKg] = useState(initialSpec.actualSeedRateUsedKg);
+  const [durationDays, setDurationDays] = useState(initialSpec.durationDays);
   const [saving, setSaving] = useState(false);
+  const [quickInitializing, setQuickInitializing] = useState(false);
+
+  // Apply crop preset
+  const applyCropDefaults = useCallback((crop: string) => {
+    setCropName(crop);
+    const spec = SowingGeneratorService.getSpec(crop);
+    setVarietyName(spec.varietyName);
+    setPlantingMethod(spec.plantingMethod);
+    setRowToRowCm(spec.spacingCm.rowToRowCm);
+    setPlantToPlantCm(spec.spacingCm.plantToPlantCm);
+    setNurseryAgeDays(spec.nurseryAgeDays || 0);
+    setSeedRateKg(spec.actualSeedRateUsedKg);
+    setDurationDays(spec.durationDays);
+  }, []);
+
+  // Sync with searchParams
+  useEffect(() => {
+    if (preselectedFarmerId) {
+      setFilterFarmerId(preselectedFarmerId);
+      setSelectedFarmerId(preselectedFarmerId);
+    }
+    if (preselectedFarmId) {
+      setFilterFarmId(preselectedFarmId);
+      setSelectedFarmId(preselectedFarmId);
+    }
+    if (preselectedCrop) {
+      applyCropDefaults(preselectedCrop);
+    }
+  }, [preselectedFarmerId, preselectedFarmId, preselectedCrop, applyCropDefaults]);
 
   const loadData = useCallback(async () => {
     try {
@@ -88,6 +148,58 @@ export default function SowingPage() {
     return !selectedFarmerId || fId === selectedFarmerId;
   });
 
+  const availableFilterFarms = farms.filter((fm) => {
+    const fId = typeof fm.farmerId === 'object' ? fm.farmerId._id : fm.farmerId;
+    return !filterFarmerId || fId === filterFarmerId;
+  });
+
+  const displayedRecords = useMemo(() => {
+    return records.filter((r) => {
+      const fId = typeof r.farmerId === 'object' ? r.farmerId?._id : r.farmerId;
+      const farmId = typeof r.farmId === 'object' ? r.farmId?._id : r.farmId;
+      if (filterFarmerId && fId !== filterFarmerId) return false;
+      if (filterFarmId && farmId !== filterFarmId) return false;
+      return true;
+    });
+  }, [records, filterFarmerId, filterFarmId]);
+
+  // Check if current preselected parcel already has an active sowing record
+  const currentParcelHasRecord = useMemo(() => {
+    if (!filterFarmId) return false;
+    return records.some((r) => {
+      const fId = typeof r.farmId === 'object' ? r.farmId?._id : r.farmId;
+      return fId === filterFarmId;
+    });
+  }, [records, filterFarmId]);
+
+  const selectedFarmObj = useMemo(
+    () => farms.find((fm) => fm._id === (filterFarmId || selectedFarmId)),
+    [farms, filterFarmId, selectedFarmId]
+  );
+
+  const handleUpdateStatus = async (recordId: string, newStatus: string) => {
+    try {
+      setUpdatingStatusId(recordId);
+      const res = await fetch('/api/sowing', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: recordId, status: newStatus }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setRecords((prev) =>
+          prev.map((r) => (r._id === recordId ? { ...r, status: newStatus as any } : r))
+        );
+      } else {
+        alert(json.message || 'Failed to update status');
+      }
+    } catch {
+      alert('Failed to update status');
+    } finally {
+      setUpdatingStatusId(null);
+    }
+  };
+
   const handleCreateRecord = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFarmerId || !selectedFarmId) {
@@ -108,9 +220,10 @@ export default function SowingPage() {
           plantingMethod,
           rowToRowCm,
           plantToPlantCm,
-          nurseryAgeDays,
+          nurseryAgeDays: plantingMethod === 'transplanting' ? nurseryAgeDays : undefined,
           actualSeedRateUsedKg: seedRateKg,
           durationDays,
+          status: sowingStatus,
         }),
       });
 
@@ -126,51 +239,318 @@ export default function SowingPage() {
     }
   };
 
+  const handleQuickInitialize = async () => {
+    const fId = filterFarmerId || selectedFarmerId;
+    const fmId = filterFarmId || selectedFarmId;
+    const cName = preselectedCrop || cropName || 'Sugarcane';
+
+    if (!fId || !fmId) {
+      alert('Farmer and parcel must be selected');
+      return;
+    }
+
+    try {
+      setQuickInitializing(true);
+      const spec = SowingGeneratorService.getSpec(cName);
+      const res = await fetch('/api/sowing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          farmerId: fId,
+          farmId: fmId,
+          cropName: cName,
+          varietyName: spec.varietyName,
+          plantingMethod: spec.plantingMethod,
+          rowToRowCm: spec.spacingCm.rowToRowCm,
+          plantToPlantCm: spec.spacingCm.plantToPlantCm,
+          nurseryAgeDays: spec.nurseryAgeDays,
+          actualSeedRateUsedKg: spec.actualSeedRateUsedKg,
+          durationDays: spec.durationDays,
+          status: 'sown',
+        }),
+      });
+
+      const json = await res.json();
+      if (json.success) {
+        await loadData();
+      } else {
+        alert(json.message || 'Failed to initialize sowing schedule');
+      }
+    } finally {
+      setQuickInitializing(false);
+    }
+  };
+
+  const handleDeleteRecord = async (recordId: string) => {
+    if (!confirm('Are you sure you want to delete this sowing record? This action cannot be undone.')) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/sowing?id=${recordId}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (json.success) {
+        setRecords((prev) => prev.filter((r) => r._id !== recordId));
+      } else {
+        alert(json.message || 'Failed to delete record');
+      }
+    } catch {
+      alert('Failed to delete record');
+    }
+  };
+
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Clean Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#245C3A]/10">
         <div>
-          <div className="flex items-center gap-2.5 mb-1">
-            <span className="px-2 py-0.5 rounded text-[11px] font-bold tracking-wider uppercase bg-[#245C3A]/10 text-[#245C3A] border border-[#245C3A]/20">
-              Module 9
-            </span>
-            <h1 className="text-2xl font-bold tracking-tight text-[#193D2A] dark:text-[#E8F0E9]">
-              Sowing & Planting Management
-            </h1>
-          </div>
-          <p className="text-sm text-stone-600 dark:text-stone-400">
-            Field establishment tracking, spacing geometry (row × plant cm), plant population density, and harvest countdown.
+          <h1 className="text-2xl font-bold tracking-tight text-[#193D2A] dark:text-[#E8F0E9] mb-1 flex items-center gap-2">
+            <Sprout className="w-6 h-6 text-[#245C3A]" />
+            Sowing & Planting Management
+          </h1>
+          <p className="text-xs text-stone-600 dark:text-stone-400">
+            Agronomic field establishment, row × plant geometry, target population density, and harvest countdown.
           </p>
         </div>
 
         <button
-          onClick={() => setShowModal(true)}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#245C3A] hover:bg-[#193D2A] text-white text-sm font-semibold shadow-sm transition"
+          onClick={() => {
+            if (filterFarmerId) setSelectedFarmerId(filterFarmerId);
+            if (filterFarmId) setSelectedFarmId(filterFarmId);
+            if (preselectedCrop) applyCropDefaults(preselectedCrop);
+            setShowModal(true);
+          }}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#245C3A] hover:bg-[#193D2A] text-white text-xs font-semibold shadow-xs transition cursor-pointer shrink-0"
         >
           <Plus className="w-4 h-4" />
-          Log Sowing / Planting Event
+          <span>Log Sowing / Planting Event</span>
         </button>
       </div>
 
-      {/* Modal */}
+      {/* Farmer & Parcel Filter Bar */}
+      <div className="bg-white dark:bg-[#1a231d] p-3.5 rounded-2xl border border-[#245C3A]/15 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 flex-1">
+          <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-stone-500 shrink-0">
+            <Filter className="w-4 h-4 text-[#245C3A]" />
+            <span>Select Farmer:</span>
+          </div>
+
+          {/* Farmer Dropdown */}
+          <div className="flex-1 min-w-[200px]">
+            <select
+              value={filterFarmerId}
+              onChange={(e) => {
+                setFilterFarmerId(e.target.value);
+                setFilterFarmId('');
+              }}
+              className="w-full px-3 py-1.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-xs font-medium text-stone-800 dark:text-stone-200 focus:outline-none focus:ring-2 focus:ring-[#245C3A]"
+            >
+              <option value="">All Registered Farmers ({farmers.length})</option>
+              {farmers.map((f) => (
+                <option key={f._id} value={f._id}>
+                  {f.name} ({f.farmerCode})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Farm Parcel Dropdown */}
+          <div className="flex-1 min-w-[200px]">
+            <select
+              value={filterFarmId}
+              onChange={(e) => setFilterFarmId(e.target.value)}
+              className="w-full px-3 py-1.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-xs font-medium text-stone-800 dark:text-stone-200 focus:outline-none focus:ring-2 focus:ring-[#245C3A]"
+            >
+              <option value="">All Farm Parcels ({availableFilterFarms.length})</option>
+              {availableFilterFarms.map((fm) => (
+                <option key={fm._id} value={fm._id}>
+                  {fm.parcelName} ({fm.totalAreaAcres} ac)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {(filterFarmerId || filterFarmId) && (
+            <button
+              onClick={() => {
+                setFilterFarmerId('');
+                setFilterFarmId('');
+              }}
+              className="text-xs font-semibold text-stone-500 hover:text-stone-800 dark:hover:text-stone-200 px-2 py-1 underline shrink-0 cursor-pointer"
+            >
+              Reset Filter
+            </button>
+          )}
+        </div>
+
+        <div className="text-xs text-stone-500 font-medium shrink-0">
+          Showing <span className="font-bold text-[#245C3A]">{displayedRecords.length}</span> of {records.length} sowing records
+        </div>
+      </div>
+
+      {/* Transition Callout: Ready for Sowing after Land Prep */}
+      {filterFarmId && !currentParcelHasRecord && (
+        <div className="p-5 rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/30 border border-emerald-300 dark:border-emerald-800 shadow-xs space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
+                  Seedbed Prepared & Ready for Planting
+                </span>
+              </div>
+              <h3 className="text-sm font-bold text-stone-900 dark:text-stone-100">
+                Establish Sowing for {preselectedCrop || 'Selected Crop'} on {selectedFarmObj?.parcelName || 'Land Parcel'}
+              </h3>
+              <p className="text-xs text-stone-600 dark:text-stone-400">
+                Land preparation operations are set. Initialize ICAR/TNAU standard planting geometry ({initialSpec.spacingCm.rowToRowCm} × {initialSpec.spacingCm.plantToPlantCm} cm, {formatPlantingMethod(initialSpec.plantingMethod)}) and harvest schedule.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleQuickInitialize}
+                disabled={quickInitializing}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#245C3A] hover:bg-[#193D2A] text-white text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-50"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                {quickInitializing ? 'Initializing...' : `Quick Sowing for ${preselectedCrop || 'Crop'}`}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedFarmerId(filterFarmerId);
+                  setSelectedFarmId(filterFarmId);
+                  if (preselectedCrop) applyCropDefaults(preselectedCrop);
+                  setShowModal(true);
+                }}
+                className="px-3.5 py-2 rounded-xl border border-emerald-600/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100/50 text-xs font-semibold transition cursor-pointer"
+              >
+                Customize
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Records List (Two Cards Grid) */}
+      {loading ? (
+        <div className="p-12 text-center text-xs font-medium text-stone-500">
+          Loading Sowing Records...
+        </div>
+      ) : records.length === 0 ? (
+        <div className="p-12 text-center bg-white dark:bg-[#1a231d] rounded-2xl border border-dashed border-[#245C3A]/20 space-y-3">
+          <Calendar className="w-10 h-10 text-stone-400 mx-auto" />
+          <h3 className="text-base font-bold text-stone-800 dark:text-stone-200">
+            No Sowing Events Recorded
+          </h3>
+          <p className="text-xs text-stone-500 max-w-md mx-auto">
+            No sowing plans exist by default. Select a parcel and crop above, or click below to log a crop establishment event.
+          </p>
+          <button
+            onClick={() => {
+              if (filterFarmerId) setSelectedFarmerId(filterFarmerId);
+              if (filterFarmId) setSelectedFarmId(filterFarmId);
+              if (preselectedCrop) applyCropDefaults(preselectedCrop);
+              setShowModal(true);
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#245C3A] text-white text-xs font-semibold shadow-xs hover:bg-[#193D2A] transition cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            Log Sowing Event
+          </button>
+        </div>
+      ) : displayedRecords.length === 0 ? (
+        <div className="p-12 text-center bg-white dark:bg-[#1a231d] rounded-2xl border border-dashed border-amber-300 dark:border-amber-800/40 space-y-3">
+          <Filter className="w-10 h-10 text-amber-500 mx-auto" />
+          <h3 className="text-base font-bold text-stone-800 dark:text-stone-200">
+            No Records for Selected Filter
+          </h3>
+          <p className="text-xs text-stone-500 max-w-md mx-auto">
+            There are no sowing records recorded for this farmer or parcel. Try clearing the filter or create a new sowing entry.
+          </p>
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={() => {
+                setFilterFarmerId('');
+                setFilterFarmId('');
+              }}
+              className="px-4 py-2 rounded-xl border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 text-xs font-semibold hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer"
+            >
+              Clear Filters
+            </button>
+            <button
+              onClick={() => {
+                if (filterFarmerId) setSelectedFarmerId(filterFarmerId);
+                if (filterFarmId) setSelectedFarmId(filterFarmId);
+                if (preselectedCrop) applyCropDefaults(preselectedCrop);
+                setShowModal(true);
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#245C3A] text-white text-xs font-semibold shadow-xs hover:bg-[#193D2A] transition cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              Log Sowing Event
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {displayedRecords.map((rec) => (
+            <SowingCard
+              key={rec._id}
+              record={rec}
+              updatingStatusId={updatingStatusId}
+              onUpdateStatus={handleUpdateStatus}
+              onDelete={handleDeleteRecord}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Modal: Record Sowing / Planting Event */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="bg-white dark:bg-[#1a231d] rounded-2xl border border-[#245C3A]/20 p-6 md:p-8 max-w-lg w-full space-y-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
-              <h2 className="text-lg font-bold text-[#193D2A] dark:text-[#E8F0E9] flex items-center gap-2">
+              <h2 className="text-base font-bold text-[#193D2A] dark:text-[#E8F0E9] flex items-center gap-2">
                 <Calendar className="w-5 h-5 text-[#245C3A]" />
                 Record Sowing / Planting Event
               </h2>
-              <button onClick={() => setShowModal(false)} className="text-stone-400 text-sm font-bold">
+              <button
+                onClick={() => setShowModal(false)}
+                className="text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 text-sm font-bold cursor-pointer"
+              >
                 ✕
               </button>
+            </div>
+
+            {/* Quick Crop Selector Presets */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-stone-500">
+                Quick Crop Agronomy Presets (ICAR / TNAU):
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {COMMON_CROP_PRESETS.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => applyCropDefaults(p)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
+                      cropName.toLowerCase().includes(p.toLowerCase().split(' ')[0])
+                        ? 'bg-[#245C3A] text-white font-bold'
+                        : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-700'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <form onSubmit={handleCreateRecord} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
-                  Farmer
+                  Farmer *
                 </label>
                 <select
                   value={selectedFarmerId}
@@ -178,7 +558,7 @@ export default function SowingPage() {
                     setSelectedFarmerId(e.target.value);
                     setSelectedFarmId('');
                   }}
-                  className="w-full px-4 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-sm"
+                  className="w-full px-3.5 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#245C3A]"
                   required
                 >
                   <option value="">-- Choose Farmer --</option>
@@ -192,13 +572,13 @@ export default function SowingPage() {
 
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
-                  Land Parcel
+                  Land Parcel *
                 </label>
                 <select
                   value={selectedFarmId}
                   disabled={!selectedFarmerId}
                   onChange={(e) => setSelectedFarmId(e.target.value)}
-                  className="w-full px-4 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-sm"
+                  className="w-full px-3.5 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#245C3A] disabled:opacity-50"
                   required
                 >
                   <option value="">-- Choose Parcel --</option>
@@ -213,25 +593,37 @@ export default function SowingPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
-                    Crop Name
+                    Crop Name *
                   </label>
                   <input
                     type="text"
                     value={cropName}
                     onChange={(e) => setCropName(e.target.value)}
-                    className="w-full px-4 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-sm"
+                    onBlur={() => {
+                      if (cropName.trim()) {
+                        const spec = SowingGeneratorService.getSpec(cropName);
+                        setVarietyName(spec.varietyName);
+                        setPlantingMethod(spec.plantingMethod);
+                        setRowToRowCm(spec.spacingCm.rowToRowCm);
+                        setPlantToPlantCm(spec.spacingCm.plantToPlantCm);
+                        setDurationDays(spec.durationDays);
+                        setSeedRateKg(spec.actualSeedRateUsedKg);
+                      }
+                    }}
+                    placeholder="e.g., Sugarcane"
+                    className="w-full px-3.5 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-xs focus:outline-none focus:ring-2 focus:ring-[#245C3A]"
                     required
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
-                    Seed Variety
+                    Seed Variety *
                   </label>
                   <input
                     type="text"
                     value={varietyName}
                     onChange={(e) => setVarietyName(e.target.value)}
-                    className="w-full px-4 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-sm"
+                    className="w-full px-3.5 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-xs focus:outline-none focus:ring-2 focus:ring-[#245C3A]"
                     required
                   />
                 </div>
@@ -244,12 +636,15 @@ export default function SowingPage() {
                   </label>
                   <select
                     value={plantingMethod}
-                    onChange={(e) => setPlantingMethod(e.target.value)}
-                    className="w-full px-4 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-sm"
+                    onChange={(e) => setPlantingMethod(e.target.value as any)}
+                    className="w-full px-3.5 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-xs focus:outline-none focus:ring-2 focus:ring-[#245C3A]"
                   >
-                    <option value="transplanting">Transplanting (Nursery seedlings)</option>
-                    <option value="direct_seeding">Direct Seeding (DSR / Drill)</option>
-                    <option value="dibbling">Dibbling (Hand sowing)</option>
+                    <option value="furrow_sett_planting">Furrow Sett Planting (Sugarcane)</option>
+                    <option value="ridge_dibbling">Ridge Dibbling (Cotton / Maize)</option>
+                    <option value="pit_planting">Pit Planting (Banana / Orchards)</option>
+                    <option value="transplanting">Transplanting (Paddy / Vegetables)</option>
+                    <option value="direct_seeding">Direct Seeding (DSR / Pulses)</option>
+                    <option value="dibbling">Dibbling (Groundnut / Turmeric)</option>
                     <option value="broadcasting">Broadcasting</option>
                     <option value="drip_fertigation_line">Drip Raised Bed Planting</option>
                   </select>
@@ -257,14 +652,16 @@ export default function SowingPage() {
 
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
-                    Duration (Days)
+                    Sowing Status
                   </label>
-                  <input
-                    type="number"
-                    value={durationDays}
-                    onChange={(e) => setDurationDays(parseInt(e.target.value, 10) || 120)}
-                    className="w-full px-4 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-sm"
-                  />
+                  <select
+                    value={sowingStatus}
+                    onChange={(e) => setSowingStatus(e.target.value as 'planned' | 'sown')}
+                    className="w-full px-3.5 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#245C3A]"
+                  >
+                    <option value="sown">🟢 Sown / Planted</option>
+                    <option value="planned">🟡 Planned (Schedule)</option>
+                  </select>
                 </div>
               </div>
 
@@ -277,7 +674,7 @@ export default function SowingPage() {
                     type="number"
                     value={rowToRowCm}
                     onChange={(e) => setRowToRowCm(parseInt(e.target.value, 10) || 20)}
-                    className="w-full px-4 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-sm"
+                    className="w-full px-3.5 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-xs font-mono"
                   />
                 </div>
                 <div>
@@ -288,7 +685,32 @@ export default function SowingPage() {
                     type="number"
                     value={plantToPlantCm}
                     onChange={(e) => setPlantToPlantCm(parseInt(e.target.value, 10) || 15)}
-                    className="w-full px-4 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-sm"
+                    className="w-full px-3.5 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-xs font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
+                    Seed Rate Used (Kg or Setts)
+                  </label>
+                  <input
+                    type="number"
+                    value={seedRateKg}
+                    onChange={(e) => setSeedRateKg(parseFloat(e.target.value) || 0)}
+                    className="w-full px-3.5 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-stone-600 dark:text-stone-400 mb-1">
+                    Duration (Days)
+                  </label>
+                  <input
+                    type="number"
+                    value={durationDays}
+                    onChange={(e) => setDurationDays(parseInt(e.target.value, 10) || 120)}
+                    className="w-full px-3.5 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-xs font-mono"
                   />
                 </div>
               </div>
@@ -297,116 +719,20 @@ export default function SowingPage() {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-4 py-2 rounded-xl text-stone-500 text-sm"
+                  className="px-4 py-2 rounded-xl text-stone-500 hover:text-stone-800 dark:hover:text-stone-200 text-xs font-bold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-6 py-2.5 rounded-xl bg-[#245C3A] hover:bg-[#193D2A] text-white text-sm font-semibold shadow disabled:opacity-50"
+                  className="px-5 py-2 rounded-xl bg-[#245C3A] hover:bg-[#193D2A] text-white text-xs font-semibold shadow-xs disabled:opacity-50 cursor-pointer"
                 >
                   {saving ? 'Logging...' : 'Confirm Sowing Entry'}
                 </button>
               </div>
             </form>
           </div>
-        </div>
-      )}
-
-      {/* Main Records List */}
-      {loading ? (
-        <div className="p-12 text-center text-stone-500">Loading Sowing Records...</div>
-      ) : records.length === 0 ? (
-        <div className="p-12 text-center bg-white dark:bg-[#1a231d] rounded-2xl border border-dashed border-[#245C3A]/20">
-          <Calendar className="w-10 h-10 text-stone-400 mx-auto mb-3" />
-          <h3 className="text-lg font-bold text-stone-800 dark:text-stone-200">No Sowing Events Recorded</h3>
-          <p className="text-sm text-stone-500 max-w-md mx-auto mt-1 mb-4">
-            Record actual field sowing to calculate target plant populations and initiate crop lifecycle tracking.
-          </p>
-          <button
-            onClick={() => setShowModal(true)}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#245C3A] text-white text-sm font-semibold shadow"
-          >
-            <Plus className="w-4 h-4" />
-            Log Sowing Event
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {records.map((rec) => {
-            const harvestDate = new Date(rec.targetHarvestDateEstimated);
-            const now = new Date();
-            const daysRemaining = Math.max(0, Math.ceil((harvestDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
-
-            return (
-              <div
-                key={rec._id}
-                className="bg-white dark:bg-[#1a231d] rounded-2xl border border-[#245C3A]/10 p-6 shadow-sm space-y-4"
-              >
-                <div className="flex items-start justify-between pb-3 border-b border-stone-100 dark:border-stone-800">
-                  <div>
-                    <span className="text-[11px] font-mono text-[#245C3A] font-bold block uppercase">
-                      {rec.farmerId?.name} ({rec.farmerId?.district})
-                    </span>
-                    <h3 className="text-xl font-bold text-stone-900 dark:text-stone-100">
-                      {rec.cropName} — {rec.varietyName}
-                    </h3>
-                    <p className="text-xs text-stone-500">
-                      Parcel: {rec.farmId?.parcelName} (Survey #{rec.farmId?.surveyNumber})
-                    </p>
-                  </div>
-
-                  <span className="px-2.5 py-1 rounded-full text-xs font-bold uppercase bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200">
-                    {rec.status.replace('_', ' ')}
-                  </span>
-                </div>
-
-                {/* Geometry & Density Grid */}
-                <div className="grid grid-cols-3 gap-3 p-3 rounded-xl bg-stone-50 dark:bg-stone-900 text-xs">
-                  <div>
-                    <span className="text-stone-400 block text-[10px] uppercase font-bold">Geometry</span>
-                    <span className="font-bold text-stone-800 dark:text-stone-200 font-mono">
-                      {rec.spacingCm.rowToRowCm} × {rec.spacingCm.plantToPlantCm} cm
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-stone-400 block text-[10px] uppercase font-bold">Plant Population</span>
-                    <span className="font-bold text-[#245C3A] font-mono">
-                      {rec.plantPopulationPerAcre.toLocaleString('en-IN')} / ac
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-stone-400 block text-[10px] uppercase font-bold">Method</span>
-                    <span className="font-bold text-stone-800 dark:text-stone-200 capitalize">
-                      {rec.plantingMethod.replace('_', ' ')}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Harvest Projection */}
-                <div className="p-3 rounded-xl border border-stone-200 dark:border-stone-800 flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-amber-500" />
-                    <div>
-                      <span className="text-stone-500 block text-[10px]">Estimated Harvest Date</span>
-                      <span className="font-bold text-stone-800 dark:text-stone-200">
-                        {harvestDate.toLocaleDateString('en-IN', {
-                          day: 'numeric',
-                          month: 'short',
-                          year: 'numeric',
-                        })}
-                      </span>
-                    </div>
-                  </div>
-
-                  <span className="font-mono text-xs font-bold px-2 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400">
-                    {daysRemaining} Days Remaining
-                  </span>
-                </div>
-              </div>
-            );
-          })}
         </div>
       )}
     </div>

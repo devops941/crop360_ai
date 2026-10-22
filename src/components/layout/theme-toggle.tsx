@@ -5,21 +5,51 @@ import { Sun, Moon } from 'lucide-react';
 import { useTheme } from './theme-provider';
 
 export function ThemeToggle({ className = '' }: { className?: string }) {
-  const { theme, toggleTheme } = useTheme();
+  const { resolvedTheme, toggleTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
 
   return (
     <button
       type="button"
       onClick={toggleTheme}
-      className={`inline-flex items-center justify-center h-9 w-9 rounded-lg border border-charcoal-200 dark:border-charcoal-700 bg-white dark:bg-charcoal-800 text-charcoal-700 dark:text-charcoal-200 hover:bg-cream-100 dark:hover:bg-charcoal-700 hover:text-forest-800 dark:hover:text-forest-400 transition-colors focus:outline-none focus:ring-2 focus:ring-forest-600 ${className}`}
-      aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
-      title={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
+      role="switch"
+      aria-checked={isDark}
+      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      className={`relative inline-flex h-8 w-16 shrink-0 cursor-pointer items-center rounded-full border transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-[#245C3A] focus:ring-offset-1 select-none ${
+        isDark
+          ? 'bg-[#142618] border-[#245C3A]'
+          : 'bg-[#E5ECE3] border-[#CFDEC9]'
+      } ${className}`}
     >
-      {theme === 'light' ? (
-        <Moon className="h-4 w-4 transition-transform hover:rotate-12" />
-      ) : (
-        <Sun className="h-4 w-4 text-amber-400 transition-transform hover:rotate-45" />
-      )}
+      {/* Background ambient icons */}
+      <div className="flex w-full items-center justify-between px-2">
+        <Sun
+          className={`h-3.5 w-3.5 transition-opacity duration-200 ${
+            !isDark ? 'opacity-0' : 'text-stone-400 opacity-60'
+          }`}
+        />
+        <Moon
+          className={`h-3.5 w-3.5 transition-opacity duration-200 ${
+            isDark ? 'opacity-0' : 'text-stone-400 opacity-60'
+          }`}
+        />
+      </div>
+
+      {/* Sliding Knob */}
+      <span
+        className={`absolute top-1 left-1 flex h-6 w-6 items-center justify-center rounded-full shadow-md transition-transform duration-300 ease-in-out ${
+          isDark
+            ? 'translate-x-8 bg-[#245C3A] text-emerald-300 border border-emerald-400/40'
+            : 'translate-x-0 bg-white text-amber-500 border border-stone-200'
+        }`}
+      >
+        {isDark ? (
+          <Moon className="h-3.5 w-3.5 fill-emerald-300/20" />
+        ) : (
+          <Sun className="h-3.5 w-3.5 fill-amber-500/20" />
+        )}
+      </span>
     </button>
   );
 }

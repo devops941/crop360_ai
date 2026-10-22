@@ -13,12 +13,10 @@ import {
   Sprout,
   Tractor,
   CalendarDays,
-  History,
   LayoutDashboard,
   ChevronLeft,
   ChevronRight,
   Shield,
-  HelpCircle,
   X,
   Activity,
   Droplet,
@@ -26,15 +24,10 @@ import {
   Bug,
   ShieldCheck,
   CloudSun,
-  Target,
-  ListTodo,
   Timer,
   Sun,
-  Warehouse,
-  BarChart3,
-  Handshake,
-  Truck,
-  Coins,
+  Package,
+  Layers,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -52,112 +45,114 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
       group: 'Core Management',
       items: [
         { label: 'Executive Dashboard', href: '/dashboard', icon: LayoutDashboard },
-        { label: '1. Farmer Management', href: '/farmers', icon: Users, count: 'M1' },
-        { label: '2. Farm & Land Parcels', href: '/farms', icon: Map, count: 'M2' },
+        { label: 'Farmer Management', href: '/farmers', icon: Users },
+        { label: 'Farm & Land Parcels', href: '/farms', icon: Map },
+        { label: 'Seed Catalog & Stock', href: '/seed-catalog', icon: Sprout },
       ],
     },
     {
       group: 'Soil Intelligence',
       items: [
-        {
-          label: '3. Soil Test Reports',
-          href: '/soil-reports',
-          icon: FileSpreadsheet,
-          count: 'M3',
-        },
-        { label: '4. AI Soil Analysis', href: '/soil-analysis', icon: Cpu, count: 'M4' },
-        { label: '5. Soil Health Cards', href: '/soil-cards', icon: FileCheck2, count: 'M5' },
+        { label: 'Soil Test Reports', href: '/soil-reports', icon: FileSpreadsheet },
+        { label: 'AI Soil Analysis', href: '/soil-analysis', icon: Cpu },
+        { label: 'Soil Health Cards', href: '/soil-cards', icon: FileCheck2 },
       ],
     },
     {
       group: 'Cultivation Lifecycle',
       items: [
-        { label: '6. Crop Suitability', href: '/crop-suitability', icon: Wheat, count: 'M6' },
-        { label: '7. Seed Selection', href: '/seed-selection', icon: Sprout, count: 'M7' },
-        { label: '8. Land Preparation', href: '/land-prep', icon: Tractor, count: 'M8' },
-        { label: '9. Sowing & Planting', href: '/sowing', icon: CalendarDays, count: 'M9' },
+        { label: 'Crop Suitability', href: '/crop-suitability', icon: Wheat },
+        { label: 'Land Preparation', href: '/land-prep', icon: Tractor },
+        { label: 'Sowing & Planting', href: '/sowing', icon: CalendarDays },
       ],
     },
+    /*
     {
       group: 'In-Season Crop Care',
       items: [
-        { label: '10. Crop Growth & Canopy', href: '/crop-growth', icon: Activity, count: 'M10' },
-        { label: '11. Irrigation Management', href: '/irrigation', icon: Droplet, count: 'M11' },
-        { label: '12. Fertilizer & Nutrients', href: '/nutrients', icon: FlaskConical, count: 'M12' },
-        { label: '13. Pest & Disease Detection', href: '/pest-detection', icon: Bug, count: 'M13' },
-        { label: '14. Crop Protection (IPM)', href: '/crop-protection', icon: ShieldCheck, count: 'M14' },
-        { label: '15. Weather & Climate', href: '/weather', icon: CloudSun, count: 'M15' },
+        { label: 'Crop Growth & Canopy', href: '/crop-growth', icon: Activity },
+        { label: 'Irrigation Management', href: '/irrigation', icon: Droplet },
+        { label: 'Fertilizer Catalog & Stock', href: '/fertilizers', icon: FlaskConical },
+        { label: 'Fertilizer & Nutrients Plan', href: '/nutrients', icon: Layers },
+        { label: 'Pest & Disease Detection', href: '/pest-detection', icon: Bug },
+        { label: 'Crop Protection (IPM)', href: '/crop-protection', icon: ShieldCheck },
+        { label: 'Weather & Climate', href: '/weather', icon: CloudSun },
       ],
     },
     {
-      group: 'Planning & Field Tasks',
+      group: 'Harvest & Operations',
       items: [
-        { label: '16. Lifecycle Planner', href: '/lifecycle-plans', icon: Target, count: 'M16' },
-        { label: '17. Task & Schedule', href: '/crop-tasks', icon: ListTodo, count: 'M17' },
+        { label: 'Harvest Readiness', href: '/harvest-readiness', icon: Timer },
+        { label: 'Harvest Operations', href: '/harvest-management', icon: Tractor },
+        { label: 'Post-Harvest & QC', href: '/post-harvest', icon: Sun },
       ],
     },
-    {
-      group: 'Harvest & Post-Harvest',
-      items: [
-        { label: '18. Harvest Readiness', href: '/harvest-readiness', icon: Timer, count: 'M18' },
-        { label: '19. Harvest Operations', href: '/harvest-management', icon: Tractor, count: 'M19' },
-        { label: '20. Post-Harvest & QC', href: '/post-harvest', icon: Sun, count: 'M20' },
-        { label: '21. Storage & Inventory', href: '/inventory-storage', icon: Warehouse, count: 'M21' },
-      ],
-    },
-    {
-      group: 'Market & Financials',
-      items: [
-        { label: '22. Mandi Market Prices', href: '/market-prices', icon: BarChart3, count: 'M22' },
-        { label: '23. Buyer Sales Contracts', href: '/buyer-selling', icon: Handshake, count: 'M23' },
-        { label: '24. Logistics & Dispatch', href: '/logistics', icon: Truck, count: 'M24' },
-        { label: '25. Cultivation Cost & P&L', href: '/cultivation-pnl', icon: Coins, count: 'M25' },
-      ],
-    },
-    {
-      group: 'Governance',
-      items: [{ label: 'System Audit Logs', href: '/audit-logs', icon: History }],
-    },
+    */
   ];
 
   const content = (
     <div className="flex flex-col h-full bg-[#193D2A] text-white select-none">
       {/* Brand Header */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-[#245C3A]">
-        <Link href="/dashboard" className="flex items-center gap-2.5 overflow-hidden">
-          <div className="h-8 w-8 rounded-lg bg-[#245C3A] flex items-center justify-center shrink-0 shadow-xs">
-            <Sprout className="h-4 w-4 text-emerald-300" />
-          </div>
-          {!collapsed && (
-            <div className="flex flex-col">
-              <span className="text-sm font-bold tracking-tight text-white leading-tight">
-                Crop360 <span className="text-emerald-400">AI</span>
-              </span>
-              <span className="text-[10px] text-[#CFDEC9]">Agronomy Platform</span>
+      <div className={`h-16 flex items-center ${collapsed ? 'justify-center px-2' : 'justify-between px-4'} border-b border-[#245C3A]/60 transition-all`}>
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            className="flex items-center justify-center p-1.5 rounded-xl hover:bg-white/10 text-white transition-colors cursor-pointer group"
+            title="Expand Sidebar"
+          >
+            <div className="h-9 w-9 rounded-xl bg-emerald-600 group-hover:bg-emerald-500 flex items-center justify-center shrink-0 shadow-sm transition-colors">
+              <Sprout className="h-5 w-5 text-white" />
             </div>
-          )}
-        </Link>
+          </button>
+        ) : (
+          <>
+            <Link
+              href="/dashboard"
+              className="flex items-center overflow-hidden py-1 group"
+              title="Crop360 AI - Agronomy Platform"
+            >
+              <div className="h-9 w-9 rounded-xl bg-emerald-600 flex items-center justify-center shrink-0 shadow-sm">
+                <Sprout className="h-5 w-5 text-white" />
+              </div>
 
-        {/* Desktop Collapse Toggle */}
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          className="hidden md:flex h-6 w-6 items-center justify-center rounded text-[#CFDEC9] hover:text-white hover:bg-[#245C3A] transition-colors"
-          title={collapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
-        >
-          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-        </button>
+              <div className="flex flex-col ml-3 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[15px] font-bold text-white tracking-tight leading-tight">
+                    Crop360
+                  </span>
+                  <span className="text-xs font-bold text-emerald-400">
+                    AI
+                  </span>
+                </div>
+                <span className="text-[11px] text-[#A8C5A0] tracking-normal leading-tight mt-0.5">
+                  Agronomy Platform
+                </span>
+              </div>
+            </Link>
 
-        {/* Mobile Close Toggle */}
-        <button
-          type="button"
-          onClick={onCloseMobile}
-          className="flex md:hidden h-7 w-7 items-center justify-center rounded text-[#CFDEC9] hover:text-white hover:bg-[#245C3A] transition-colors"
-          title="Close Navigation"
-          aria-label="Close Navigation"
-        >
-          <X className="h-4 w-4" />
-        </button>
+            {/* Desktop Collapse Toggle Button (Simple, clean, no harsh outline) */}
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              className="hidden md:flex h-7 w-7 items-center justify-center rounded-lg text-emerald-200/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer ml-2"
+              title="Collapse Sidebar"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+
+            {/* Mobile Close Toggle */}
+            <button
+              type="button"
+              onClick={onCloseMobile}
+              className="flex md:hidden h-7 w-7 items-center justify-center rounded-lg text-emerald-200/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer ml-2"
+              title="Close Navigation"
+              aria-label="Close Navigation"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </>
+        )}
       </div>
 
       {/* Nav List */}
@@ -189,11 +184,6 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
                     className={`h-4 w-4 shrink-0 ${isActive ? 'text-emerald-300' : 'text-[#CFDEC9]'}`}
                   />
                   {!collapsed && <span className="truncate flex-1">{item.label}</span>}
-                  {!collapsed && item.count && (
-                    <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[#193D2A] text-[#CFDEC9] border border-[#245C3A]">
-                      {item.count}
-                    </span>
-                  )}
                 </Link>
               );
             })}
@@ -202,17 +192,7 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
       </div>
 
       {/* Footer Info */}
-      {!collapsed && (
-        <div className="p-3 border-t border-[#245C3A] bg-[#143021] text-[11px] text-[#CFDEC9]">
-          <div className="flex items-center gap-2 mb-1 text-white font-medium">
-            <Shield className="h-3.5 w-3.5 text-emerald-400" />
-            <span>ICAR Standard Aligned</span>
-          </div>
-          <p className="text-[10px] text-[#CFDEC9]/80 leading-tight">
-            Connecting soil chemistry with agricultural operations.
-          </p>
-        </div>
-      )}
+     
     </div>
   );
 

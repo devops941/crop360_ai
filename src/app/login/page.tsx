@@ -89,7 +89,7 @@ export default function LoginPage() {
         <div className="mt-6 rounded-xl border border-[#E3E8DF] bg-white p-6 sm:p-8 shadow-xs">
           {/* Google Sign In */}
           <div>
-            <GoogleSignInButton label="Continue with Google" />
+            <GoogleSignInButton label="Continue with Google" mode="login" />
           </div>
 
           <div className="relative my-6">

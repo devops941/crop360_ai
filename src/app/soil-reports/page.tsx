@@ -54,6 +54,13 @@ export default function SoilReportsPage() {
       const res = await fetch(`/api/soil-reports/${reportId}/analyze`, { method: 'POST' });
       const json = await res.json();
       if (json.success) {
+        // Also auto-generate the Soil Health Card so both modules are ready!
+        await fetch('/api/soil-cards', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reportId }),
+        }).catch(() => null);
+
         router.push('/soil-analysis');
       } else {
         alert(json.message || 'Analysis failed');
@@ -172,29 +179,48 @@ export default function SoilReportsPage() {
             <button
               onClick={() => handleRunAiAnalysis(r._id)}
               disabled={analyzingId === r._id}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#245C3A] hover:bg-[#193D2A] text-white text-xs font-medium transition shadow-sm"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#245C3A] hover:bg-[#193D2A] text-white text-xs font-semibold transition shadow-sm"
             >
               <Sparkles className="w-3.5 h-3.5" />
               {analyzingId === r._id ? 'Analyzing...' : 'Run AI Analysis'}
             </button>
           )}
           {r.status === 'analyzed' && (
-            <button
-              onClick={() => handleGenerateCard(r._id)}
-              disabled={generatingCardId === r._id}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium transition shadow-sm"
-            >
-              <Award className="w-3.5 h-3.5" />
-              {generatingCardId === r._id ? 'Generating...' : 'Issue Card'}
-            </button>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/soil-analysis"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 text-xs font-medium hover:bg-blue-100"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                View Analysis
+              </Link>
+              <button
+                onClick={() => handleGenerateCard(r._id)}
+                disabled={generatingCardId === r._id}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition shadow-sm"
+              >
+                <Award className="w-3.5 h-3.5" />
+                {generatingCardId === r._id ? 'Issuing...' : 'Issue Card'}
+              </button>
+            </div>
           )}
           {r.status === 'card_generated' && (
-            <Link
-              href="/soil-cards"
-              className="inline-flex items-center gap-1 text-xs font-semibold text-[#245C3A] hover:underline"
-            >
-              View Card →
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/soil-analysis"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-[#245C3A] dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold hover:bg-emerald-100 transition"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                AI Analysis
+              </Link>
+              <Link
+                href="/soil-cards"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-xs font-semibold hover:bg-amber-100 transition"
+              >
+                <Award className="w-3.5 h-3.5" />
+                Soil Card →
+              </Link>
+            </div>
           )}
         </div>
       ),
@@ -206,14 +232,9 @@ export default function SoilReportsPage() {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#245C3A]/10">
         <div>
-          <div className="flex items-center gap-2.5 mb-1">
-            <span className="px-2 py-0.5 rounded text-[11px] font-bold tracking-wider uppercase bg-[#245C3A]/10 text-[#245C3A] border border-[#245C3A]/20">
-              Module 3
-            </span>
-            <h1 className="text-2xl font-bold tracking-tight text-[#193D2A] dark:text-[#E8F0E9]">
-              Soil Test Report Upload & Registry
-            </h1>
-          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-[#193D2A] dark:text-[#E8F0E9] mb-1">
+            Soil Test Report Upload & Registry
+          </h1>
           <p className="text-sm text-stone-600 dark:text-stone-400">
             Digitize laboratory test reports with 12 Soil Health Card parameters, run AI agronomy diagnostics, and issue Soil Health Cards.
           </p>

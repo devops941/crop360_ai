@@ -20,9 +20,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { user, token } = await authService.handleGoogleAuth(validation.data);
+    const referer = request.headers.get('referer') || '';
+    const isRegisterRequest =
+      validation.data.mode === 'register' ||
+      referer.toLowerCase().includes('/register');
 
-    const response = ApiResponseHelper.success(user, 'Signed in with Google successfully.');
+    const authInput = {
+      ...validation.data,
+      mode: (isRegisterRequest ? 'register' : 'login') as 'login' | 'register',
+    };
+
+    const { user, token } = await authService.handleGoogleAuth(authInput);
+
+    const response = ApiResponseHelper.success(
+      user,
+      isRegisterRequest
+        ? 'Account registered and signed in with Google successfully.'
+        : 'Signed in with Google successfully.'
+    );
 
     response.cookies.set({
       ...sessionCookieOptions,
@@ -32,6 +47,14 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Google authentication failed';
-    return ApiResponseHelper.error(message, 400, 'GOOGLE_AUTH_FAILED');
+    const isNotRegistered =
+      message.toLowerCase().includes('no registered') ||
+      message.toLowerCase().includes('not registered') ||
+      message.toLowerCase().includes('register first');
+    return ApiResponseHelper.error(
+      message,
+      isNotRegistered ? 404 : 400,
+      isNotRegistered ? 'USER_NOT_REGISTERED' : 'GOOGLE_AUTH_FAILED'
+    );
   }
 }

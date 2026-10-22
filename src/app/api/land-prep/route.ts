@@ -2,18 +2,38 @@ import { NextRequest } from 'next/server';
 import { ApiResponse } from '@/lib/api-response';
 import { connectDB } from '@/lib/mongodb';
 import { LandPreparationPlan } from '@/models/land-prep.model';
+import { CropRecommendationPlan } from '@/models/crop-recommendation.model';
+import { Farm } from '@/models/farm.model';
+import { LandPrepGeneratorService } from '@/services/land-prep-generator.service';
 import { AuditLogger } from '@/lib/audit-logger';
 import { AUTH_COOKIE_NAME, verifyAuthToken } from '@/lib/auth';
+import { getTenantScope } from '@/lib/tenant';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
     await connectDB();
+    const scope = await getTenantScope(request);
     const { searchParams } = new URL(request.url);
     const farmerId = searchParams.get('farmerId');
     const farmId = searchParams.get('farmId');
 
     const filter: Record<string, unknown> = {};
-    if (farmerId) filter.farmerId = farmerId;
+    if (!scope.isAdmin) {
+      if (farmerId) {
+        if (scope.farmerIdStrings.includes(String(farmerId))) {
+          filter.farmerId = farmerId;
+        } else {
+          return ApiResponse.success([], 'No records found');
+        }
+      } else {
+        filter.farmerId = { $in: scope.farmerIds };
+      }
+    } else if (farmerId) {
+      filter.farmerId = farmerId;
+    }
+
     if (farmId) filter.farmId = farmId;
 
     const plans = await LandPreparationPlan.find(filter)
@@ -31,6 +51,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     await connectDB();
+    const scope = await getTenantScope(request);
     const body = await request.json();
     const { farmerId, farmId, cropName = 'Paddy', tillageType = 'conventional' } = body;
 
@@ -38,93 +59,25 @@ export async function POST(request: NextRequest) {
       return ApiResponse.badRequest('farmerId and farmId are required');
     }
 
-    // Default operations sequence based on tillage type
-    const operations =
-      tillageType === 'puddled_wetland'
-        ? [
-            {
-              stepNumber: 1,
-              operationName: 'Dry Summer Ploughing',
-              implementType: 'mouldboard_plough',
-              targetDepthInches: 8,
-              timingDaysBeforeSowing: 21,
-              purpose: 'Expose soil pathogens, break hard pan, and bury previous crop stubble',
-              isCompleted: false,
-            },
-            {
-              stepNumber: 2,
-              operationName: 'Basal FYM / Green Manure Incorporation',
-              implementType: 'rotavator',
-              targetDepthInches: 4,
-              timingDaysBeforeSowing: 14,
-              purpose: 'Distribute 5 tonnes/acre farmyard manure evenly across plough layer',
-              isCompleted: false,
-            },
-            {
-              stepNumber: 3,
-              operationName: 'Primary & Secondary Wet Puddling',
-              implementType: 'rotavator',
-              targetDepthInches: 6,
-              timingDaysBeforeSowing: 5,
-              purpose: 'Puddle submerged soil with 5cm standing water to prevent percolation',
-              isCompleted: false,
-            },
-            {
-              stepNumber: 4,
-              operationName: 'Perfect Leveling & Peripheral Bund Trimming',
-              implementType: 'leveler',
-              targetDepthInches: 0,
-              timingDaysBeforeSowing: 1,
-              purpose: 'Laser/wooden leveling board to ensure uniform 2cm water depth for transplanting',
-              isCompleted: false,
-            },
-          ]
-        : [
-            {
-              stepNumber: 1,
-              operationName: 'Primary Deep Ploughing',
-              implementType: 'mouldboard_plough',
-              targetDepthInches: 9,
-              timingDaysBeforeSowing: 25,
-              purpose: 'Break hard soil crust, destroy perennial weed rhizomes, maximize rain absorption',
-              isCompleted: false,
-            },
-            {
-              stepNumber: 2,
-              operationName: 'Disc Harrowing Clod Crushing',
-              implementType: 'disc_harrow',
-              targetDepthInches: 5,
-              timingDaysBeforeSowing: 12,
-              purpose: 'Pulverize dry clods to create granular friable soil texture',
-              isCompleted: false,
-            },
-            {
-              stepNumber: 3,
-              operationName: 'Secondary Tillage & Organic Amendment Incorporation',
-              implementType: 'cultivator',
-              targetDepthInches: 4,
-              timingDaysBeforeSowing: 5,
-              purpose: 'Mix basal FYM and bio-fertilizers into seed zone',
-              isCompleted: false,
-            },
-            {
-              stepNumber: 4,
-              operationName: 'Ridge and Furrow / Seedbed Formation',
-              implementType: 'ridger',
-              targetDepthInches: 6,
-              timingDaysBeforeSowing: 2,
-              purpose: 'Form uniform 60cm ridges for optimal drainage and root aeration',
-              isCompleted: false,
-            },
-          ];
+    if (!scope.isAdmin && !scope.farmerIdStrings.includes(String(farmerId))) {
+      return ApiResponse.forbidden('You do not have permission to schedule land preparation for this farmer');
+    }
+
+    const farm = await Farm.findById(farmId);
+    const generated = await LandPrepGeneratorService.generate(
+      cropName,
+      farm?.soilType || 'loam'
+    );
 
     const plan = await LandPreparationPlan.create({
       farmerId,
       farmId,
       cropName,
-      tillageType,
-      basalFYMApplicationTonnesPerAcre: 5,
-      operations,
+      season: 'Kharif 2026',
+      tillageType: generated.tillageType,
+      basalFYMApplicationTonnesPerAcre: generated.basalFYMApplicationTonnesPerAcre,
+      soilAmendmentRequired: generated.soilAmendmentRequired,
+      operations: generated.operations,
       readinessScorePercent: 0,
       status: 'planning',
     });
@@ -144,8 +97,8 @@ export async function POST(request: NextRequest) {
       after: (plan.toObject ? plan.toObject() : plan) as unknown as Record<string, unknown>,
     });
 
-    return ApiResponse.created(plan, 'Land preparation plan created successfully');
+    return ApiResponse.created(plan, 'Land preparation plan scheduled successfully');
   } catch (error) {
-    return ApiResponse.serverError('Failed to create land preparation plan', error);
+    return ApiResponse.serverError('Failed to schedule land preparation plan', error);
   }
 }

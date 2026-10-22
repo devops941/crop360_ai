@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -20,11 +20,14 @@ import {
   Beaker,
   Shield,
   Layers,
+  CloudSun,
+  ArrowRight,
 } from 'lucide-react';
+import { CropCareNav, FarmerOption, FarmOption, ActiveCropContext } from '@/components/crop-care/crop-care-nav';
 
 interface CropProtectionRecord {
   _id: string;
-  farmerId: { _id: string; name: string; farmerCode: string };
+  farmerId: { _id: string; name: string; farmerCode: string; district?: string };
   farmId: { _id: string; parcelName: string; surveyNumber: string };
   detectionId?: { _id: string; pestDiseaseName: string; severityLevel: string };
   cropName: string;
@@ -43,12 +46,6 @@ interface CropProtectionRecord {
   estimatedCostInrPerAcre: number;
   notes?: string;
   createdAt: string;
-}
-
-interface FarmOption {
-  _id: string;
-  parcelName: string;
-  farmerId: { _id: string; name: string };
 }
 
 const IPM_PRESETS = [
@@ -121,10 +118,26 @@ const IPM_PRESETS = [
 export default function CropProtectionPage() {
   const searchParams = useSearchParams();
   const detectionIdParam = searchParams?.get('detectionId') || '';
+  const queryFarmerId = searchParams?.get('farmerId') || '';
+  const queryFarmId = searchParams?.get('farmId') || '';
+  const queryCropName = searchParams?.get('cropName') || '';
+  const queryPestName = searchParams?.get('pestName') || '';
 
   const [records, setRecords] = useState<CropProtectionRecord[]>([]);
+  const [farmers, setFarmers] = useState<FarmerOption[]>([]);
   const [farms, setFarms] = useState<FarmOption[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeCropInfo, setActiveCropInfo] = useState<ActiveCropContext | null>(null);
+
+  // Filter State
+  const [filterFarmerId, setFilterFarmerId] = useState(queryFarmerId);
+  const [filterFarmId, setFilterFarmId] = useState(queryFarmId);
+
+  useEffect(() => {
+    if (queryFarmerId) setFilterFarmerId(queryFarmerId);
+    if (queryFarmId) setFilterFarmId(queryFarmId);
+  }, [queryFarmerId, queryFarmId]);
+
   const [statusFilter, setStatusFilter] = useState('all');
   const [strategyFilter, setStrategyFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
@@ -132,9 +145,9 @@ export default function CropProtectionPage() {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
-    farmId: '',
-    cropName: 'Paddy / Rice',
-    targetPestOrDisease: 'Brown Planthopper & Leaf Folders',
+    farmId: queryFarmId || '',
+    cropName: queryCropName || 'Paddy / Rice',
+    targetPestOrDisease: queryPestName || 'Brown Planthopper & Leaf Folders',
     controlStrategy: 'biological',
     recommendedFormulation: 'Azadirachtin 10,000 ppm (Neem Seed Kernel Extract)',
     cibrcRegistrationNumber: 'CIR-44819/2021',
@@ -149,16 +162,59 @@ export default function CropProtectionPage() {
     notes: 'Prescribed in response to field inspection ETL breach.',
   });
 
-  const loadData = async () => {
+  const loadFarmSowingDetails = useCallback(async (selectedFarmId: string) => {
+    if (!selectedFarmId) return;
+    try {
+      const res = await fetch(`/api/sowing?farmId=${selectedFarmId}`);
+      if (res.ok) {
+        const json = await res.json();
+        const records = json.data || [];
+        if (records.length > 0) {
+          const sow = records[0];
+          setFormData((prev) => ({
+            ...prev,
+            cropName: sow.cropName,
+          }));
+          const matchingPreset = IPM_PRESETS.find((p) =>
+            p.crop.toLowerCase().includes(sow.cropName.toLowerCase().slice(0, 4))
+          );
+          if (matchingPreset) {
+            handleApplyPreset(matchingPreset);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load farm sowing details', e);
+    }
+  }, []);
+
+  const handleOpenModal = () => {
+    const activeFarm = filterFarmId || (farms.length > 0 ? farms[0]._id : '');
+    setFormData((prev) => ({
+      ...prev,
+      farmId: activeFarm,
+    }));
+    if (activeFarm) {
+      loadFarmSowingDetails(activeFarm);
+    }
+    setShowModal(true);
+  };
+
+  const loadData = useCallback(async (fFarmerId?: string, fFarmId?: string) => {
     try {
       setLoading(true);
-      const url = detectionIdParam
-        ? `/api/crop-protection?detectionId=${detectionIdParam}`
-        : '/api/crop-protection';
+      const params = new URLSearchParams();
+      if (detectionIdParam) params.append('detectionId', detectionIdParam);
+      const targetFarmer = fFarmerId !== undefined ? fFarmerId : filterFarmerId;
+      const targetFarm = fFarmId !== undefined ? fFarmId : filterFarmId;
+      if (targetFarmer) params.append('farmerId', targetFarmer);
+      if (targetFarm) params.append('farmId', targetFarm);
+      const url = `/api/crop-protection${params.toString() ? `?${params.toString()}` : ''}`;
 
-      const [protRes, farmRes] = await Promise.all([
+      const [protRes, farmRes, farmerRes] = await Promise.all([
         fetch(url),
         fetch('/api/farms'),
+        fetch('/api/farmers'),
       ]);
 
       if (protRes.ok) {
@@ -168,20 +224,21 @@ export default function CropProtectionPage() {
       if (farmRes.ok) {
         const json = await farmRes.json();
         setFarms(json.data || []);
-        if (json.data?.length > 0 && !formData.farmId) {
-          setFormData((prev) => ({ ...prev, farmId: json.data[0]._id }));
-        }
+      }
+      if (farmerRes.ok) {
+        const json = await farmerRes.json();
+        setFarmers(json.data || []);
       }
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [detectionIdParam, filterFarmerId, filterFarmId]);
 
   useEffect(() => {
-    loadData();
-  }, [detectionIdParam]);
+    loadData(filterFarmerId, filterFarmId);
+  }, [detectionIdParam, filterFarmerId, filterFarmId, loadData]);
 
   const handleApplyPreset = (preset: (typeof IPM_PRESETS)[0]) => {
     setFormData((prev) => ({
@@ -213,11 +270,12 @@ export default function CropProtectionPage() {
 
     try {
       setSubmitting(true);
+      const fOwnerId = typeof selectedFarm.farmerId === 'object' ? selectedFarm.farmerId?._id : selectedFarm.farmerId;
       const res = await fetch('/api/crop-protection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          farmerId: selectedFarm.farmerId?._id || selectedFarm.farmerId,
+          farmerId: fOwnerId,
           farmId: formData.farmId,
           detectionId: detectionIdParam || undefined,
           cropName: formData.cropName,
@@ -275,17 +333,21 @@ export default function CropProtectionPage() {
   };
 
   const filtered = records.filter((r) => {
+    const fId = typeof r.farmerId === 'object' ? r.farmerId?._id : r.farmerId;
+    const fmId = typeof r.farmId === 'object' ? r.farmId?._id : r.farmId;
+    if (filterFarmerId && fId !== filterFarmerId) return false;
+    if (filterFarmId && fmId !== filterFarmId) return false;
     if (statusFilter !== 'all' && r.sprayStatus !== statusFilter) return false;
     if (strategyFilter !== 'all' && r.controlStrategy !== strategyFilter) return false;
     return true;
   });
 
-  const totalPrescriptions = records.length;
-  const completedCount = records.filter((r) => r.sprayStatus === 'completed').length;
-  const bioCount = records.filter((r) => r.controlStrategy === 'biological').length;
+  const totalPrescriptions = filtered.length;
+  const completedCount = filtered.filter((r) => r.sprayStatus === 'completed').length;
+  const bioCount = filtered.filter((r) => r.controlStrategy === 'biological').length;
   const bioSharePercent = totalPrescriptions ? Math.round((bioCount / totalPrescriptions) * 100) : 60;
   const avgPhiDays = totalPrescriptions
-    ? Math.round(records.reduce((acc, r) => acc + (r.waitingPeriodDaysPHI || 0), 0) / totalPrescriptions)
+    ? Math.round(filtered.reduce((acc, r) => acc + (r.waitingPeriodDaysPHI || 0), 0) / totalPrescriptions)
     : 7;
 
   return (
@@ -294,15 +356,12 @@ export default function CropProtectionPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span className="px-2.5 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider bg-[#E7EFE6] dark:bg-[#1e3826] text-[#245C3A] dark:text-[#8ee0a8] border border-[#CFDEC9] dark:border-[#2d5c3a]">
-              Module 14 &bull; Phase 5
-            </span>
             <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
-              <ShieldCheck className="h-3.5 w-3.5" /> ICAR & CIBRC Integrated Pest Management
+              <ShieldCheck className="h-3.5 w-3.5" /> ICAR &amp; CIBRC Integrated Pest Management
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-stone-900 dark:text-white">
-            Crop Protection & IPM Advisory
+            Crop Protection &amp; IPM Advisory
           </h1>
           <p className="text-sm text-stone-600 dark:text-[#a0b5a3] mt-1 max-w-2xl">
             Prescribe bio-pesticides, safe chemical formulations, dilution dosages, and enforce mandatory Pre-Harvest Intervals (PHI) to prevent residue buildup.
@@ -311,13 +370,13 @@ export default function CropProtectionPage() {
 
         <div className="flex items-center gap-3">
           <Link
-            href="/weather"
+            href={`/weather?farmerId=${filterFarmerId || ''}&farmId=${filterFarmId || ''}`}
             className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold border border-[#245C3A]/30 text-[#245C3A] dark:text-emerald-400 hover:bg-[#E7EFE6] dark:hover:bg-[#193D2A] transition-colors"
           >
-            Module 15: Weather Windows &rarr;
+            Weather Windows &rarr;
           </Link>
           <button
-            onClick={() => setShowModal(true)}
+            onClick={handleOpenModal}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-[#245C3A] hover:bg-[#193D2A] dark:bg-[#245C3A] dark:hover:bg-[#1e4e31] shadow-xs transition-colors cursor-pointer"
           >
             <Plus className="h-4 w-4" />
@@ -325,6 +384,39 @@ export default function CropProtectionPage() {
           </button>
         </div>
       </div>
+
+      {/* Unified In-Season Navigation & Filter Bar */}
+      <CropCareNav
+        currentTab="protection"
+        farmers={farmers}
+        farms={farms}
+        filterFarmerId={filterFarmerId}
+        filterFarmId={filterFarmId}
+        onFarmerChange={(id) => {
+          setFilterFarmerId(id);
+        }}
+        onFarmChange={(id) => setFilterFarmId(id)}
+        onResetFilter={() => {
+          setFilterFarmerId('');
+          setFilterFarmId('');
+        }}
+        recordCount={filtered.length}
+        recordLabel="prescriptions"
+        onActiveCropDetected={(ctx) => {
+          setActiveCropInfo(ctx);
+          setFormData((prev) => ({
+            ...prev,
+            farmId: ctx.farmId || prev.farmId,
+            cropName: ctx.cropName || prev.cropName,
+          }));
+          const matchingPreset = IPM_PRESETS.find((p) =>
+            p.crop.toLowerCase().includes(ctx.cropName.toLowerCase().slice(0, 4))
+          );
+          if (matchingPreset) {
+            handleApplyPreset(matchingPreset);
+          }
+        }}
+      />
 
       {/* Metric Cards Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -493,12 +585,21 @@ export default function CropProtectionPage() {
                   )}
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-stone-100 dark:border-[#245C3A]/30 flex items-center justify-between text-xs">
+                <div className="mt-4 pt-3 border-t border-stone-100 dark:border-[#245C3A]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
                   <div className="text-[11px] text-stone-500 dark:text-[#a0b5a3]">
                     Parcel: <span className="font-semibold text-stone-800 dark:text-white">{item.farmId?.parcelName}</span>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Link
+                      href={`/weather?farmerId=${filterFarmerId || ''}&farmId=${filterFarmId || ''}`}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-[#245C3A]/20 text-[#245C3A] dark:text-emerald-400 hover:bg-[#E7EFE6] dark:hover:bg-[#193D2A] transition"
+                      title="Verify wind speed & rain forecast before spraying"
+                    >
+                      <CloudSun className="h-3.5 w-3.5" />
+                      <span>Spray Window</span>
+                    </Link>
+
                     {item.sprayStatus !== 'completed' ? (
                       <button
                         onClick={() => handleUpdateStatus(item._id, 'completed')}
@@ -520,6 +621,28 @@ export default function CropProtectionPage() {
           })}
         </div>
       )}
+
+      {/* Workflow Next Step Banner */}
+      <div className="bg-gradient-to-r from-[#245C3A]/10 via-[#245C3A]/5 to-transparent dark:from-[#245C3A]/20 p-4 rounded-xl border border-[#245C3A]/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h3 className="text-xs font-bold text-[#245C3A] dark:text-emerald-300 uppercase tracking-wider">
+            In-Season Workflow • Step 6 of 6
+          </h3>
+          <p className="text-sm font-semibold text-stone-800 dark:text-stone-100 mt-0.5">
+            Weather &amp; Agro-Climatic Advisory
+          </p>
+          <p className="text-xs text-stone-600 dark:text-stone-400">
+            Check IMD rainfall forecasts, wind speeds, spray safety windows, and district-level weather alerts.
+          </p>
+        </div>
+        <Link
+          href={`/weather?farmerId=${filterFarmerId || ''}&farmId=${filterFarmId || ''}`}
+          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-[#245C3A] hover:bg-[#193D2A] text-white shadow-xs transition shrink-0"
+        >
+          <span>Next: Weather &amp; Climate</span>
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      </div>
 
       {/* New Prescription Modal */}
       {showModal && (
@@ -566,6 +689,15 @@ export default function CropProtectionPage() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              {activeCropInfo && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-[11px] text-emerald-800 dark:text-emerald-300">
+                  <Sparkles className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                  <span>
+                    Auto-calibrated for Active Cultivation: <strong>{activeCropInfo.cropName} ({activeCropInfo.varietyName})</strong> — {activeCropInfo.stageName} (DAS {activeCropInfo.daysAfterSowing})
+                  </span>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold mb-1 text-stone-700 dark:text-stone-300">
@@ -573,14 +705,20 @@ export default function CropProtectionPage() {
                   </label>
                   <select
                     value={formData.farmId}
-                    onChange={(e) => setFormData({ ...formData, farmId: e.target.value })}
+                    onChange={(e) => {
+                      const newFarmId = e.target.value;
+                      setFormData({ ...formData, farmId: newFarmId });
+                      if (newFarmId) {
+                        loadFarmSowingDetails(newFarmId);
+                      }
+                    }}
                     required
                     className="w-full px-3 py-2 text-xs rounded-xl border border-stone-200 dark:border-[#245C3A]/40 bg-stone-50 dark:bg-[#121c14] text-stone-900 dark:text-white outline-none"
                   >
                     <option value="">Select parcel</option>
                     {farms.map((f) => (
                       <option key={f._id} value={f._id}>
-                        {f.parcelName} ({f.farmerId?.name || 'Farmer'})
+                        {f.parcelName} ({typeof f.farmerId === 'object' && f.farmerId?.name ? f.farmerId.name : 'Farmer'})
                       </option>
                     ))}
                   </select>

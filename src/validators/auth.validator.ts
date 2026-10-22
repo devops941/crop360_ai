@@ -42,6 +42,7 @@ export type LoginInput = z.infer<typeof loginSchema>;
 export const googleAuthSchema = z.object({
   credential: z.string().optional(),
   code: z.string().optional(),
+  mode: z.enum(['login', 'register']).default('login'),
   userInfo: z
     .object({
       email: z.string().email(),

@@ -3,19 +3,33 @@ import { ApiResponseHelper } from '@/lib/api-response';
 import { farmRepository } from '@/repositories/farm.repository';
 import { farmSchema, validateRequest } from '@/validators';
 import { AuditLogger } from '@/lib/audit-logger';
-import { AUTH_COOKIE_NAME, verifyAuthToken } from '@/lib/auth';
+import { getTenantScope, getAuthenticatedUser } from '@/lib/tenant';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const scope = await getTenantScope(request);
     const { searchParams } = new URL(request.url);
     const farmerId = searchParams.get('farmerId');
     const district = searchParams.get('district');
 
     const filter: Record<string, unknown> = {};
-    if (farmerId) filter.farmerId = farmerId;
     if (district) filter.district = district;
+
+    if (!scope.isAdmin) {
+      if (farmerId) {
+        if (scope.farmerIdStrings.includes(String(farmerId))) {
+          filter.farmerId = farmerId;
+        } else {
+          return ApiResponseHelper.success([], 'Farms retrieved successfully');
+        }
+      } else {
+        filter.farmerId = { $in: scope.farmerIds };
+      }
+    } else if (farmerId) {
+      filter.farmerId = farmerId;
+    }
 
     const farms = await farmRepository.findAllWithFarmer(filter);
     return ApiResponseHelper.success(farms, 'Farms retrieved successfully');
@@ -26,8 +40,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const sessionCookie = request.cookies.get(AUTH_COOKIE_NAME)?.value;
-    const session = sessionCookie ? await verifyAuthToken(sessionCookie) : null;
+    const scope = await getTenantScope(request);
+    const session = scope.session;
 
     const body = await request.json();
     const validation = await validateRequest(farmSchema, body);
@@ -37,6 +51,14 @@ export async function POST(request: NextRequest) {
         422,
         'VALIDATION_ERROR',
         validation.errors
+      );
+    }
+
+    if (!scope.isAdmin && !scope.farmerIdStrings.includes(String(validation.data.farmerId))) {
+      return ApiResponseHelper.error(
+        'Unauthorized: You can only register land parcels for your own farmer profile',
+        403,
+        'FORBIDDEN'
       );
     }
 

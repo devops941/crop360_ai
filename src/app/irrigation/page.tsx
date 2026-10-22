@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   Droplet,
   Clock,
@@ -15,9 +16,13 @@ import {
   Check,
   X,
   Loader2,
+  ArrowRight,
+  Sun,
+  FlaskConical,
 } from 'lucide-react';
 import { DataTable, Column } from '@/components/common/data-table';
 import { toast } from 'react-toastify';
+import { CropCareNav, FarmerOption, FarmOption } from '@/components/crop-care/crop-care-nav';
 
 interface IrrigationRow extends Record<string, unknown> {
   _id: string;
@@ -36,6 +41,7 @@ interface IrrigationRow extends Record<string, unknown> {
     _id: string;
     name: string;
     farmerCode: string;
+    district?: string;
   };
   farmId?: {
     _id: string;
@@ -46,34 +52,34 @@ interface IrrigationRow extends Record<string, unknown> {
   };
 }
 
-interface FarmerOption {
-  _id: string;
-  name: string;
-  farmerCode: string;
-}
-
-interface FarmOption {
-  _id: string;
-  parcelName: string;
-  farmerId: string | { _id: string };
-  totalAreaAcres: number;
-  irrigationSource: string;
-}
-
 export default function IrrigationPage() {
+  const searchParams = useSearchParams();
+  const queryFarmerId = searchParams.get('farmerId') || '';
+  const queryFarmId = searchParams.get('farmId') || '';
+  const queryCropName = searchParams.get('cropName') || '';
+
   const [schedules, setSchedules] = useState<IrrigationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [farmers, setFarmers] = useState<FarmerOption[]>([]);
   const [farms, setFarms] = useState<FarmOption[]>([]);
+
+  // Filter State
+  const [filterFarmerId, setFilterFarmerId] = useState(queryFarmerId);
+  const [filterFarmId, setFilterFarmId] = useState(queryFarmId);
+
+  useEffect(() => {
+    if (queryFarmerId) setFilterFarmerId(queryFarmerId);
+    if (queryFarmId) setFilterFarmId(queryFarmId);
+  }, [queryFarmerId, queryFarmId]);
 
   // Modal State
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   // Form Fields
-  const [farmerId, setFarmerId] = useState('');
-  const [farmId, setFarmId] = useState('');
-  const [cropName, setCropName] = useState('Paddy (Rice)');
+  const [farmerId, setFarmerId] = useState(queryFarmerId || '');
+  const [farmId, setFarmId] = useState(queryFarmId || '');
+  const [cropName, setCropName] = useState(queryCropName || 'Paddy (Rice)');
   const [soilMoisturePercent, setSoilMoisturePercent] = useState(42);
   const [cropCoefficientKc, setCropCoefficientKc] = useState(0.85);
   const [referenceEtMm, setReferenceEtMm] = useState(4.5);
@@ -84,10 +90,67 @@ export default function IrrigationPage() {
   );
   const [notes, setNotes] = useState('');
 
-  const fetchSchedules = useCallback(async () => {
+  const loadFarmSowingDetails = useCallback(async (selectedFarmId: string) => {
+    if (!selectedFarmId) return;
+    try {
+      const res = await fetch(`/api/sowing?farmId=${selectedFarmId}`);
+      if (res.ok) {
+        const json = await res.json();
+        const records = json.data || [];
+        if (records.length > 0) {
+          const sow = records[0];
+          setCropName(sow.cropName);
+          const isPaddy = sow.cropName.toLowerCase().includes('paddy') || sow.cropName.toLowerCase().includes('rice');
+          setIrrigationMethod(isPaddy ? 'flooding' : 'drip');
+          setCropCoefficientKc(isPaddy ? 1.15 : 0.85);
+          setNotes(`Precision irrigation run calibrated for ${sow.cropName}`);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load farm sowing details', e);
+    }
+  }, []);
+
+  const handleOpenModal = () => {
+    const activeFarmer = filterFarmerId || (farmers.length > 0 ? farmers[0]._id : '');
+    setFarmerId(activeFarmer);
+
+    const matchingFarms = farms.filter((fm) => {
+      const fOwnerId = typeof fm.farmerId === 'object' ? fm.farmerId?._id : fm.farmerId;
+      return !activeFarmer || String(fOwnerId) === String(activeFarmer);
+    });
+
+    const activeFarm =
+      filterFarmId && matchingFarms.some((f) => String(f._id) === String(filterFarmId))
+        ? filterFarmId
+        : matchingFarms.length > 0
+        ? matchingFarms[0]._id
+        : '';
+
+    setFarmId(activeFarm);
+    if (activeFarm) {
+      loadFarmSowingDetails(activeFarm);
+    }
+    setShowModal(true);
+  };
+
+  // Sync modal selections when filter changes
+  useEffect(() => {
+    if (filterFarmerId) setFarmerId(filterFarmerId);
+    if (filterFarmId) {
+      setFarmId(filterFarmId);
+      loadFarmSowingDetails(filterFarmId);
+    }
+  }, [filterFarmerId, filterFarmId, loadFarmSowingDetails]);
+
+  const fetchSchedules = useCallback(async (fId = filterFarmerId, fmId = filterFarmId) => {
     try {
       setLoading(true);
-      const res = await fetch('/api/irrigation');
+      const params = new URLSearchParams();
+      if (fId) params.set('farmerId', fId);
+      if (fmId) params.set('farmId', fmId);
+      const q = params.toString() ? `?${params.toString()}` : '';
+      const res = await fetch(`/api/irrigation${q}`);
       if (res.ok) {
         const json = await res.json();
         setSchedules(json.data || []);
@@ -97,7 +160,7 @@ export default function IrrigationPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filterFarmerId, filterFarmId]);
 
   const loadLookups = useCallback(async () => {
     try {
@@ -115,9 +178,20 @@ export default function IrrigationPage() {
   }, []);
 
   useEffect(() => {
-    fetchSchedules();
     loadLookups();
-  }, [fetchSchedules, loadLookups]);
+  }, [loadLookups]);
+
+  useEffect(() => {
+    fetchSchedules(filterFarmerId, filterFarmId);
+  }, [filterFarmerId, filterFarmId, fetchSchedules]);
+
+  const displayedSchedules = schedules.filter((s) => {
+    const fId = typeof s.farmerId === 'object' ? s.farmerId?._id : s.farmerId;
+    const fmId = typeof s.farmId === 'object' ? s.farmId?._id : s.farmId;
+    if (filterFarmerId && String(fId) !== String(filterFarmerId)) return false;
+    if (filterFarmId && String(fmId) !== String(filterFarmId)) return false;
+    return true;
+  });
 
   const filteredFarms = farms.filter((fm) => {
     if (!farmerId) return true;
@@ -286,9 +360,38 @@ export default function IrrigationPage() {
         </div>
       ),
     },
+    {
+      key: 'actions',
+      header: 'Care Actions',
+      render: (r) => {
+        const fId = typeof r.farmerId === 'object' ? r.farmerId?._id : r.farmerId;
+        const fmId = typeof r.farmId === 'object' ? r.farmId?._id : r.farmId;
+        const q = `?farmerId=${fId || ''}&farmId=${fmId || ''}&cropName=${encodeURIComponent(r.cropName || '')}`;
+        return (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Link
+              href={`/weather${q}`}
+              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 hover:bg-sky-100 transition"
+              title="Check rain forecast before irrigating"
+            >
+              <Sun className="h-3 w-3" />
+              <span>Weather</span>
+            </Link>
+            <Link
+              href={`/nutrients${q}`}
+              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 hover:bg-amber-100 transition"
+              title="Plan fertigation and nutrient doses"
+            >
+              <FlaskConical className="h-3 w-3" />
+              <span>Nutrients</span>
+            </Link>
+          </div>
+        );
+      },
+    },
   ];
 
-  const totalWater = schedules.reduce(
+  const totalWater = displayedSchedules.reduce(
     (acc, s) => acc + (Number(s.calculatedWaterRequirementLitersPerAcre) || 0),
     0
   );
@@ -298,31 +401,49 @@ export default function IrrigationPage() {
       {/* Header Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#E3E8DF] dark:border-stone-800">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="px-2.5 py-0.5 rounded text-[10px] font-mono font-bold bg-[#E7EFE6] dark:bg-emerald-950/70 text-[#245C3A] dark:text-emerald-400 border border-[#CFDEC9] dark:border-emerald-800">
-              MODULE 11
-            </span>
-            <span className="text-xs text-[#687168] dark:text-stone-400 font-medium">
-              • Evapotranspiration &amp; Irrigation
-            </span>
-          </div>
-          <h1 className="text-2xl font-bold text-[#252B26] dark:text-white tracking-tight">
+          <h1 className="text-2xl font-bold text-[#252B26] dark:text-white tracking-tight mb-1">
             Irrigation Scheduling &amp; Water Budget
           </h1>
-          <p className="text-xs text-[#687168] dark:text-[#a0b5a3] mt-0.5">
+          <p className="text-xs text-[#687168] dark:text-[#a0b5a3]">
             Scientific irrigation timing based on Penman-Monteith ETc, soil moisture depletion, and pump discharge metrics.
           </p>
         </div>
 
         <button
           type="button"
-          onClick={() => setShowModal(true)}
+          onClick={handleOpenModal}
           className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-lg bg-[#245C3A] hover:bg-[#193D2A] dark:bg-[#2d7348] dark:hover:bg-[#245C3A] text-white shadow-xs transition-colors shrink-0"
         >
           <Plus className="h-4 w-4" />
           <span>Compute Irrigation Run</span>
         </button>
       </div>
+
+      {/* Unified In-Season Navigation & Filter Bar */}
+      <CropCareNav
+        currentTab="irrigation"
+        farmers={farmers}
+        farms={farms}
+        filterFarmerId={filterFarmerId}
+        filterFarmId={filterFarmId}
+        onFarmerChange={(id) => {
+          setFilterFarmerId(id);
+        }}
+        onFarmChange={(id) => setFilterFarmId(id)}
+        onResetFilter={() => {
+          setFilterFarmerId('');
+          setFilterFarmId('');
+        }}
+        onActiveCropDetected={(ctx) => {
+          setCropName(ctx.cropName);
+          const isPaddy = ctx.cropName.toLowerCase().includes('paddy') || ctx.cropName.toLowerCase().includes('rice');
+          setIrrigationMethod(isPaddy ? 'flooding' : 'drip');
+          setCropCoefficientKc(isPaddy ? 1.15 : 0.85);
+          setNotes(`Precision irrigation run calibrated for ${ctx.cropName} on ${ctx.parcelName} (DAS: ${ctx.daysAfterSowing})`);
+        }}
+        recordCount={displayedSchedules.length}
+        recordLabel="schedules"
+      />
 
       {/* 4 Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -339,9 +460,9 @@ export default function IrrigationPage() {
         <div className="rounded-xl border border-[#E3E8DF] dark:border-[#245C3A]/30 bg-white dark:bg-[#162218] p-4 shadow-xs transition-colors">
           <span className="text-xs text-[#687168] dark:text-[#9bb19f]">Mean Soil Moisture</span>
           <p className="text-2xl font-bold text-[#252B26] dark:text-white mt-1">
-            {schedules.length
+            {displayedSchedules.length
               ? Math.round(
-                  schedules.reduce((acc, s) => acc + s.soilMoisturePercent, 0) / schedules.length
+                  displayedSchedules.reduce((acc, s) => acc + s.soilMoisturePercent, 0) / displayedSchedules.length
                 )
               : 45}%
           </p>
@@ -354,7 +475,7 @@ export default function IrrigationPage() {
         <div className="rounded-xl border border-[#E3E8DF] dark:border-[#245C3A]/30 bg-white dark:bg-[#162218] p-4 shadow-xs transition-colors">
           <span className="text-xs text-[#687168] dark:text-[#9bb19f]">Pending Schedules</span>
           <p className="text-2xl font-bold text-amber-600 dark:text-amber-400 mt-1">
-            {schedules.filter((s) => s.status === 'pending').length}
+            {displayedSchedules.filter((s) => s.status === 'pending' || s.status === 'scheduled').length}
           </p>
           <span className="text-[11px] text-[#687168] dark:text-[#9bb19f] mt-1 block">
             Awaiting pump trigger
@@ -364,7 +485,7 @@ export default function IrrigationPage() {
         <div className="rounded-xl border border-[#E3E8DF] dark:border-[#245C3A]/30 bg-white dark:bg-[#162218] p-4 shadow-xs transition-colors">
           <span className="text-xs text-[#687168] dark:text-[#9bb19f]">Completed Cycles</span>
           <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">
-            {schedules.filter((s) => s.status === 'completed').length}
+            {displayedSchedules.filter((s) => s.status === 'completed').length}
           </p>
           <span className="text-[11px] text-[#687168] dark:text-[#9bb19f] mt-1 block">
             Logged with water meter
@@ -408,8 +529,19 @@ export default function IrrigationPage() {
                   <select
                     value={farmerId}
                     onChange={(e) => {
-                      setFarmerId(e.target.value);
-                      setFarmId('');
+                      const newFarmerId = e.target.value;
+                      setFarmerId(newFarmerId);
+                      const newMatchingFarms = farms.filter((fm) => {
+                        const fOwnerId = typeof fm.farmerId === 'object' ? fm.farmerId?._id : fm.farmerId;
+                        return String(fOwnerId) === String(newFarmerId);
+                      });
+                      if (newMatchingFarms.length > 0) {
+                        const firstFarmId = newMatchingFarms[0]._id;
+                        setFarmId(firstFarmId);
+                        loadFarmSowingDetails(firstFarmId);
+                      } else {
+                        setFarmId('');
+                      }
                     }}
                     required
                     className="w-full px-3 py-2 text-xs rounded-lg border border-[#E3E8DF] dark:border-stone-700 bg-white dark:bg-stone-800 text-[#252B26] dark:text-stone-100 focus:outline-none focus:border-[#245C3A]"
@@ -429,7 +561,13 @@ export default function IrrigationPage() {
                   </label>
                   <select
                     value={farmId}
-                    onChange={(e) => setFarmId(e.target.value)}
+                    onChange={(e) => {
+                      const newFarmId = e.target.value;
+                      setFarmId(newFarmId);
+                      if (newFarmId) {
+                        loadFarmSowingDetails(newFarmId);
+                      }
+                    }}
                     required
                     disabled={!farmerId}
                     className="w-full px-3 py-2 text-xs rounded-lg border border-[#E3E8DF] dark:border-stone-700 bg-white dark:bg-stone-800 text-[#252B26] dark:text-stone-100 focus:outline-none focus:border-[#245C3A]"
@@ -550,12 +688,34 @@ export default function IrrigationPage() {
 
       {/* Table */}
       <DataTable
-        data={schedules}
+        data={displayedSchedules}
         columns={columns}
         searchPlaceholder="Search irrigation plans by crop, farmer, or parcel..."
         searchKey="cropName"
         emptyMessage="No irrigation schedules logged yet. Click 'Compute Irrigation Run' to schedule your first precision water budget."
       />
+
+      {/* Workflow Next Step Banner */}
+      <div className="bg-gradient-to-r from-[#245C3A]/10 via-[#245C3A]/5 to-transparent dark:from-[#245C3A]/20 p-4 rounded-xl border border-[#245C3A]/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h3 className="text-xs font-bold text-[#245C3A] dark:text-emerald-300 uppercase tracking-wider">
+            In-Season Workflow • Step 3 of 6
+          </h3>
+          <p className="text-sm font-semibold text-stone-800 dark:text-stone-100 mt-0.5">
+            Optimize Fertilizer &amp; Nutrients Dosing
+          </p>
+          <p className="text-xs text-stone-600 dark:text-stone-400">
+            Formulate split-dosage NPK and micronutrient recommendations for active parcels.
+          </p>
+        </div>
+        <Link
+          href={`/nutrients?farmerId=${filterFarmerId || ''}&farmId=${filterFarmId || ''}`}
+          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-[#245C3A] hover:bg-[#193D2A] text-white shadow-xs transition shrink-0"
+        >
+          <span>Next: Fertilizer &amp; Nutrients</span>
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      </div>
     </div>
   );
 }

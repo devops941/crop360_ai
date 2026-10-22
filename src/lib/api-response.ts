@@ -41,6 +41,14 @@ export class ApiResponseHelper {
     );
   }
 
+  static forbidden(message = 'Access forbidden', details?: unknown): NextResponse<IApiResponse<null>> {
+    return ApiResponseHelper.error(message, 403, 'FORBIDDEN', details);
+  }
+
+  static unauthorized(message = 'Unauthorized access', details?: unknown): NextResponse<IApiResponse<null>> {
+    return ApiResponseHelper.error(message, 401, 'UNAUTHORIZED', details);
+  }
+
   static internalError(
     message = 'Internal server error',
     error?: unknown
@@ -74,6 +82,14 @@ export class ApiResponse {
 
   static badRequest(message = 'Bad Request', details?: unknown) {
     return ApiResponseHelper.error(message, 400, 'BAD_REQUEST', details);
+  }
+
+  static unauthorized(message = 'Unauthorized access', details?: unknown) {
+    return ApiResponseHelper.unauthorized(message, details);
+  }
+
+  static forbidden(message = 'Access forbidden', details?: unknown) {
+    return ApiResponseHelper.forbidden(message, details);
   }
 
   static notFound(message = 'Resource not found') {
